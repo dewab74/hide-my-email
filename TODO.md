@@ -32,7 +32,7 @@ Still to verify:
 - [ ] `hme login` on an SMS-only account, and which second-factor path the
       login above took. The choice now follows Apple's `noTrustedDevices`
       statement when present; whether real accounts send it is unconfirmed
-- [ ] Second `hme login` reuses the trust token and skips the code
+- [x] Second `hme login` reuses the trust token and skips the code
 - [ ] `generate` with no note (an empty `note` on `reserve`)
 - [ ] Confirm which status codes the setup and mail-domain services return
       for expired cookies (401, 421 and 450 are all treated as "refresh")
@@ -83,8 +83,15 @@ Done:
 
 Still to do:
 
-- [ ] Run `hme generate --1password` for real once (it creates an address
-      and a vault item) and confirm the item looks right in 1Password
+- [x] Run `hme generate --1password` for real (2026-11-19, op 2.42.0,
+      macOS): address created, login saved with the address as username,
+      and an unknown vault refused before any address was made
+- [ ] Still unchecked against the real `op`: the item's `email` field when
+      `--username` is given, and `hme login --1password` since its
+      arguments changed to the `--flag=value` form (0.1.3)
+- [ ] Have the release workflow also update `Formula/hme.rb` in the
+      dewab-org/homebrew-custom tap (needs a token with write access to
+      that repository); until then it is updated by hand
 - [ ] `--tags`, and a password recipe for sites with awkward rules
 - [ ] Decided against for now: writing the item reference into the
       address's note. The label and the item title already match, and it

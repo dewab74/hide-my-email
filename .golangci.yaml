@@ -1,0 +1,46 @@
+# golangci-lint v2 config schema.
+version: "2"
+
+linters:
+  default: standard   # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - bodyclose       # unclosed HTTP response bodies
+    - errorlint       # wrapping mistakes that break errors.Is/As
+    - gosec           # security issues
+    - misspell
+    - nilerr
+    - revive          # broad style/correctness linter
+    - unconvert
+    - unparam
+
+  settings:
+    errcheck:
+      # Writes to the user's terminal. There is nothing useful to do when
+      # stdout or stderr is gone, and checking each one buries the logic.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+    gosec:
+      excludes: []
+    revive:
+      rules:
+        - name: exported
+          disabled: true   # enable once the public API is documented
+
+  exclusions:
+    generated: lax
+    rules:
+      # Tests get more latitude: unchecked errors and "weak" randomness in a
+      # test aren't defects.
+      - path: _test\.go
+        linters: [errcheck, gosec, unparam]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

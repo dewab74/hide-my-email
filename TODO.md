@@ -59,38 +59,40 @@ Still to verify:
 - [ ] `hme login` should offer a choice when several trusted phone numbers
       exist
 
-## 1Password integration (0.4)
+## 1Password integration
 
-Goal: one command that creates a Hide My Email address for a site and a
-1Password login for it, with a generated password.
+Done:
 
-```text
-hme generate -d "Acme store" --1password --url https://acme.example [--username NAME] [--vault VAULT]
-```
-
-- [ ] Decide the command shape: a `--1password` flag on `generate` (above)
-      or a separate verb such as `hme signup URL -d DESC`
-- [ ] Create the item through the `op` CLI (`op item create --category
-      login --title DESC --url URL --generate-password username=...`), so
-      1Password generates and stores the password and `hme` never sees it
-- [ ] Username defaults to the new address; `--username` overrides it, and
+- [x] `hme generate -d DESC --1password --url URL [--username NAME]
+      [--vault VAULT]` creates the address and a 1Password login for the
+      site. Chosen over a separate `signup` verb: it is the same action
+      with one more destination
+- [x] The item is created through the `op` CLI with
+      `--generate-password`, so 1Password generates and keeps the
+      password; `hme` never prints `op`'s output and wipes its copy
+- [x] Username defaults to the new address; `--username` overrides it and
       the address is then stored as the item's email field
-- [ ] Record the address in the item and the item reference in the alias
-      note, so each can be found from the other
-- [ ] `--vault`, and optionally `--tags` and a password recipe
-- [ ] Run `op` with an argument list, never through a shell; validate the
-      URL (http/https only); keep the password out of stdout, stderr,
-      `--json` and the clipboard unless explicitly asked for
-- [ ] Decide what happens if `op` fails after the address exists: keep the
-      address and say so, or deactivate it (leaning: keep, and print the
-      exact `op` command to retry)
-- [ ] Clear errors when `op` is missing, not signed in, or the vault is
-      unknown; check for it before creating the address
-- [ ] Tests with a fake `op` on `PATH`
+- [x] `op` is run with an argument list, never a shell; assignments follow
+      `--`; the URL must be http(s)
+- [x] `op` and the vault are checked before the address is created; if
+      saving the login fails afterwards the address is kept and the exact
+      `op` command to finish is printed
+- [x] Tests with a fake `op`; the real `op` 2.42.0 accepted the same
+      arguments in a `--dry-run`
+
+Still to do:
+
+- [ ] Run `hme generate --1password` for real once (it creates an address
+      and a vault item) and confirm the item looks right in 1Password
+- [ ] `--tags`, and a password recipe for sites with awkward rules
+- [ ] Decided against for now: writing the item reference into the
+      address's note. The label and the item title already match, and it
+      would cost a second iCloud call that can fail on its own
 - [x] Sign in to iCloud through 1Password: `hme login --1password ITEM
       [--vault VAULT]`, with `op` supplying the Apple ID and password so
-      nothing is typed. Tested against a fake `op` only
-- [ ] Run `hme login --1password` against the real `op` CLI and Apple
+      nothing is typed
+- [x] Run `hme login --1password` against the real `op` CLI and Apple
+      (2026-11-19, hme 0.1.2, op 2.42.0, macOS)
 - [ ] Open questions for 1Password sign-in:
   - whether to remember the item reference (not a secret), or read it
     from an environment variable, so a plain `hme login` uses it

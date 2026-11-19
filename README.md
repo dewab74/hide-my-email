@@ -38,10 +38,11 @@ shared in case it is useful to someone else, not as a supported product.
 
 In part, that itch exists because 1Password has no Hide My Email
 integration: it cannot create an iCloud address for you when you sign up
-somewhere, so doing that means a detour through Settings or icloud.com. `hme` closes that gap from
-the command line, and [pairing it with 1Password](TODO.md#1password-integration-04)
-is planned. If 1Password adds Hide My Email support itself, this project
-may become unnecessary.
+somewhere, so doing that means a detour through Settings or icloud.com.
+`hme` closes that gap from the command line, and
+[pairs with 1Password](#signing-up-with-1password) to create the address
+and the login in one step. If 1Password adds Hide My Email support itself,
+this project may become unnecessary.
 
 ## Install
 
@@ -138,6 +139,7 @@ Access* on newer systems; it is off when Advanced Data Protection is on).
 | Command | What it does |
 | --- | --- |
 | `hme generate -d DESC [-n NOTE] [--no-copy]` | Create an address labelled `DESC` and copy it to the clipboard. Aliases: `gen`, `new`. |
+| `hme generate -d DESC --1password --url URL [--username NAME] [--vault VAULT]` | The same, and save a login for that site in 1Password with a generated password. See [Signing up with 1Password](#signing-up-with-1password). |
 | `hme list [--active \| --inactive] [-s TEXT] [--sort created\|label\|address] [-q]` | List addresses, newest first. `-q` prints addresses only. Alias: `ls`. |
 | `hme show ADDRESS` | Everything about one address. |
 | `hme copy TEXT` | Copy the one active address whose address or label contains `TEXT`. |
@@ -193,6 +195,36 @@ own, so they stay put if Apple renames theirs:
 
 Exit codes: `0` success, `1` failure, `2` usage error, `3` not signed in or
 the session expired (run `hme login`).
+
+### Signing up with 1Password
+
+One command makes the address and the login to go with it:
+
+```bash
+hme generate -d "Acme store" --1password --url https://acme.example
+```
+
+```console
+plover-tidbit.4x@icloud.com
+Copied to the clipboard.
+Saved a login for https://acme.example to 1Password as "Acme store" in the Private vault, with a generated password.
+```
+
+The login is titled with the description, has the new address as its
+username, and gets a password that 1Password generates and keeps; `hme`
+never sees it. On the site's sign-up page, 1Password's browser extension
+then fills in both. Options:
+
+- `--username NAME` if the site wants a user name that is not the email
+  address. The address is then stored on the item as its email field.
+- `--vault VAULT` to choose the vault. The default is your personal one.
+- `-n NOTE` is saved as the item's notes as well as the address's note.
+
+This needs the [1Password CLI](https://developer.1password.com/docs/cli/)
+(`op`), which unlocks in its usual way. `hme` checks that 1Password is
+reachable, and that the vault exists, before it creates the address. If
+saving the login still fails afterwards, the address is kept and `hme`
+prints the exact `op` command that finishes the job.
 
 ### Signing in from a password manager
 

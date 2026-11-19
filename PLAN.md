@@ -167,9 +167,10 @@ first milestone below.
    defects found; Linux, Windows and the cases listed in TODO.md remain.
 3. **0.3, reach:** hardware security key sign-in, China-region accounts,
    Scoop/winget packaging, signed and notarized macOS binaries.
-4. **0.4, 1Password:** given a URL and a description (and optionally a
-   username), create the address and a 1Password login for that site in one
-   step, with the password generated and held by 1Password via the `op`
-   CLI so `hme` never handles it. Tasks and open questions are in TODO.md.
+4. **1Password, done in 0.1.2 and 0.1.3:** `hme login --1password` signs
+   in from a vault item, and `hme generate --1password --url` creates the
+   address and a login for the site in one step, with the password
+   generated and held by 1Password via the `op` CLI so `hme` never handles
+   it.
 5. **Later:** a file lock for concurrent runs, `list` filters by date,
    bulk operations from stdin, address completion in shells.

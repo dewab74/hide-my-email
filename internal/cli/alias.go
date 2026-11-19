@@ -89,8 +89,8 @@ func findAll(l *icloud.Listing, args []string) ([]icloud.Alias, error) {
 }
 
 func (a *app) generateCmd() *cobra.Command {
-	var label, note string
-	var noCopy bool
+	var label, note, site, username, vault string
+	var noCopy, onePassword bool
 	cmd := &cobra.Command{
 		Use:     "generate -d DESCRIPTION",
 		Aliases: []string{"gen", "new"},
@@ -99,9 +99,18 @@ func (a *app) generateCmd() *cobra.Command {
 
 The address alone is written to stdout, so it can be captured:
 
-  addr=$(hme generate -d "Newsletter" --no-copy)`,
+  addr=$(hme generate -d "Newsletter" --no-copy)
+
+With --1password and --url, a login for that site is also saved in
+1Password, through the 1Password CLI (op): titled DESCRIPTION, with the
+new address as its username and a password that 1Password generates.
+hme never sees that password. Use --username if the site wants a user
+name that is not the email address; the address is then kept on the
+item as its email field.`,
 		Example: `  hme generate -d "Acme store"
-  hme generate -d "Acme store" -n "ordered a kettle" --json`,
+  hme generate -d "Acme store" -n "ordered a kettle" --json
+  hme generate -d "Acme store" --1password --url https://acme.example
+  hme generate -d "Acme forum" --1password --url acme.example --username kettlefan --vault Private`,
 		Args:              exactArgs(0),
 		ValidArgsFunction: noComplete,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -115,21 +124,67 @@ The address alone is written to stdout, so it can be captured:
 			if label == "" {
 				return usagef("a description is required: hme generate -d \"what it is for\"")
 			}
-			return a.withClient(cmd.Context(), func(c *icloud.Client) error {
-				al, err := c.Create(cmd.Context(), label, strings.TrimSpace(note))
+			note, username, vault = strings.TrimSpace(note), strings.TrimSpace(username), strings.TrimSpace(vault)
+			switch {
+			case !onePassword && (site != "" || username != "" || vault != ""):
+				return usagef("--url, --username and --vault only apply with --1password")
+			case onePassword && strings.TrimSpace(site) == "":
+				return usagef("--1password needs the site: --url https://example.com")
+			}
+			if onePassword {
+				var err error
+				if site, err = siteURL(site); err != nil {
+					return err
+				}
+			}
+			ctx := cmd.Context()
+			return a.withClient(ctx, func(c *icloud.Client) error {
+				// Find out that 1Password is unusable before there is an
+				// address to be left without its login.
+				if onePassword {
+					if err := a.opReady(ctx, vault); err != nil {
+						return err
+					}
+				}
+				al, err := c.Create(ctx, label, note)
 				if err != nil {
 					return err
 				}
 				copied := !noCopy && a.copyOut(al.Address)
+
+				var saved *itemRef
+				if onePassword {
+					item := loginItem{Title: label, URL: site, Username: username, Address: al.Address, Note: note, Vault: vault}
+					if item.Username == "" {
+						item.Username = al.Address
+					}
+					ref, err := a.opCreateLogin(ctx, item)
+					if err != nil {
+						// The address exists and is not undone: say so, and
+						// how to finish by hand.
+						return fmt.Errorf("created %s, but saving the login failed: %w\nThe address was kept. To add the login yourself:\n  op %s",
+							safe(al.Address), err, shellQuote(item.args()))
+					}
+					saved = &ref
+				}
+
 				if a.json {
 					return a.printJSON(struct {
 						aliasJSON
-						Copied bool `json:"copied"`
-					}{toJSON(*al), copied})
+						Copied      bool     `json:"copied"`
+						OnePassword *itemRef `json:"onePassword,omitempty"`
+					}{toJSON(*al), copied, saved})
 				}
 				fmt.Fprintln(a.Out, safe(al.Address))
 				if copied {
 					fmt.Fprintln(a.Err, "Copied to the clipboard.")
+				}
+				if saved != nil {
+					where := ""
+					if saved.Vault != "" {
+						where = " in the " + saved.Vault + " vault"
+					}
+					fmt.Fprintf(a.Err, "Saved a login for %s to 1Password as %q%s, with a generated password.\n", site, safe(label), where)
 				}
 				return nil
 			})
@@ -138,6 +193,13 @@ The address alone is written to stdout, so it can be captured:
 	cmd.Flags().StringVarP(&label, "description", "d", "", "what the address is for (shown as its label in iCloud)")
 	cmd.Flags().StringVarP(&note, "note", "n", "", "optional longer note")
 	cmd.Flags().BoolVar(&noCopy, "no-copy", false, "do not copy the address to the clipboard")
+	cmd.Flags().BoolVar(&onePassword, "1password", false, "also save a login for the site in 1Password, with a generated password")
+	cmd.Flags().StringVar(&site, "url", "", "with --1password: the site's web address")
+	cmd.Flags().StringVar(&username, "username", "", "with --1password: user name for the login (default: the new address)")
+	cmd.Flags().StringVar(&vault, "vault", "", "with --1password: the vault to save in (default: your personal vault)")
+	for _, name := range []string{"description", "note", "url", "username", "vault"} {
+		_ = cmd.RegisterFlagCompletionFunc(name, noComplete)
+	}
 	return cmd
 }
 

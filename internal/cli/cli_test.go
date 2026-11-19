@@ -54,6 +54,8 @@ type env struct {
 	opOut, opStderr string
 	opErr           error
 	opArgs          [][]string
+	// opFunc, if set, answers each call instead of the fixed values.
+	opFunc func(args []string) (stdout, stderr string, err error)
 }
 
 func newEnv(t *testing.T) *env {
@@ -85,6 +87,10 @@ func (e *env) run(stdin string, args ...string) result {
 		},
 		RunOp: func(_ context.Context, args []string) ([]byte, string, error) {
 			e.opArgs = append(e.opArgs, args)
+			if e.opFunc != nil {
+				out, stderr, err := e.opFunc(args)
+				return []byte(out), stderr, err
+			}
 			return []byte(e.opOut), e.opStderr, e.opErr
 		},
 		ClientOptions: []icloud.Option{icloud.WithTestEndpoints(e.fake.AuthBase(), e.fake.SetupBase())},
@@ -628,5 +634,137 @@ func TestLoginWith1PasswordFailures(t *testing.T) {
 				t.Error("op was run despite a usage error")
 			}
 		})
+	}
+}
+
+// createdItem is op's answer to `item create`: the whole item, including
+// a password that hme must never repeat.
+const (
+	madeInVault = "generated inside the vault"
+	createdItem = `{"id":"itemid123","title":"Acme store","vault":{"id":"v1","name":"Private"},
+		"fields":[{"id":"password","type":"CONCEALED","value":"` + madeInVault + `"}]}`
+)
+
+func TestGenerateWith1Password(t *testing.T) {
+	e := newEnv(t)
+	e.login()
+	e.opOut = createdItem
+
+	r := e.ok("generate", "-d", "Acme store", "--1password", "--url", "acme.example/signup")
+	addr := strings.TrimSpace(r.out)
+	if !strings.HasSuffix(addr, "@icloud.com") || e.clipboard != addr {
+		t.Fatalf("stdout %q, clipboard %q", r.out, e.clipboard)
+	}
+	if !strings.Contains(r.errOut, `Saved a login for https://acme.example/signup to 1Password as "Acme store" in the Private vault`) {
+		t.Errorf("stderr = %q", r.errOut)
+	}
+	if len(e.opArgs) != 2 {
+		t.Fatalf("op calls = %q", e.opArgs)
+	}
+	if got := strings.Join(e.opArgs[0], " "); got != "vault list --format json" {
+		t.Errorf("preflight = %q", got)
+	}
+	want := "item create --category login --title Acme store --url https://acme.example/signup --generate-password --format json -- username=" + addr
+	if got := strings.Join(e.opArgs[1], " "); got != want {
+		t.Errorf("create =\n %q, want\n %q", got, want)
+	}
+
+	// A separate user name, a vault and a note; JSON output.
+	e.opArgs = nil
+	out := e.ok("generate", "-d", "Acme forum", "-n", "kettle talk", "--1password", "--url", "https://forum.acme.example",
+		"--username", "kettlefan", "--vault", "Private", "--no-copy", "--json").out
+	got := decode[struct {
+		Address     string
+		Copied      bool
+		OnePassword struct{ ID, Title, Vault string }
+	}](t, out)
+	if got.OnePassword.ID != "itemid123" || got.OnePassword.Vault != "Private" || got.Copied {
+		t.Errorf("json = %+v", got)
+	}
+	if pre := strings.Join(e.opArgs[0], " "); pre != "vault get --format json -- Private" {
+		t.Errorf("preflight = %q", pre)
+	}
+	create := strings.Join(e.opArgs[1], "|")
+	for _, part := range []string{"--vault|Private", "--|username=kettlefan", "email[email]=" + got.Address, "notesPlain=kettle talk"} {
+		if !strings.Contains(create, part) {
+			t.Errorf("create args %q lack %q", create, part)
+		}
+	}
+	if strings.Contains(out+r.out+r.errOut, madeInVault) {
+		t.Error("the generated password was printed")
+	}
+
+	// Without the flag, 1Password is never touched.
+	e.opArgs = nil
+	e.ok("generate", "-d", "Plain", "--no-copy")
+	if len(e.opArgs) != 0 {
+		t.Errorf("op was run without --1password: %q", e.opArgs)
+	}
+}
+
+func TestGenerateWith1PasswordFailures(t *testing.T) {
+	e := newEnv(t)
+	e.login()
+	before := len(e.fake.Aliases())
+
+	// Mistakes in the invocation: nothing is created anywhere.
+	for _, args := range [][]string{
+		{"generate", "-d", "x", "--url", "https://a.example"},
+		{"generate", "-d", "x", "--username", "u"},
+		{"generate", "-d", "x", "--vault", "v"},
+		{"generate", "-d", "x", "--1password"},
+		{"generate", "-d", "x", "--1password", "--url", "ftp://a.example"},
+		{"generate", "-d", "x", "--1password", "--url", "https://user:pw@a.example"}, // pragma: allowlist secret
+		{"generate", "-d", "x", "--1password", "--url", "a b.example"},
+		{"generate", "-d", "x", "--1password", "--url", "https://"},
+	} {
+		if r := e.run("", args...); r.code != cli.ExitUsage {
+			t.Errorf("hme %v: exit %d (%s), want a usage error", args, r.code, r.errOut)
+		}
+	}
+	if len(e.opArgs) != 0 || len(e.fake.Aliases()) != before {
+		t.Fatalf("a usage error still ran op (%q) or created an address", e.opArgs)
+	}
+
+	// 1Password is locked or the vault is wrong: found out before any
+	// address is created.
+	e.opErr, e.opStderr = &exec.ExitError{}, `[ERROR] 2026/11/19 "Nope" isn't a vault in this account.`
+	r := e.run("", "generate", "-d", "Acme store", "--1password", "--url", "https://acme.example", "--vault", "Nope")
+	if r.code != cli.ExitError || !strings.Contains(r.errOut, "isn't a vault") || len(e.fake.Aliases()) != before {
+		t.Errorf("preflight failure: exit %d, stderr %q, aliases %d", r.code, r.errOut, len(e.fake.Aliases()))
+	}
+
+	// The item cannot be saved after the address exists: the address is
+	// kept, named, and the way to finish is spelled out.
+	e.opErr, e.opStderr, e.opArgs = nil, "", nil
+	e.opFunc = func(args []string) (string, string, error) {
+		if args[0] == "item" {
+			return madeInVault, "[ERROR] 2026/11/19 could not create the item", &exec.ExitError{}
+		}
+		return "[]", "", nil
+	}
+	r = e.run("", "generate", "-d", "Bob's shop", "--1password", "--url", "https://bob.example", "--no-copy")
+	as := e.fake.Aliases()
+	if r.code != cli.ExitError || len(as) != before+1 {
+		t.Fatalf("exit %d, aliases %d", r.code, len(as))
+	}
+	addr := as[len(as)-1].Address
+	for _, want := range []string{
+		"created " + addr, "could not create the item", "The address was kept",
+		`op item create --category login --title 'Bob'\''s shop' --url https://bob.example --generate-password --format json -- username=` + addr,
+	} {
+		if !strings.Contains(r.errOut, want) {
+			t.Errorf("stderr lacks %q:\n%s", want, r.errOut)
+		}
+	}
+	if strings.Contains(r.out+r.errOut, madeInVault) {
+		t.Error("op's stdout leaked into the output")
+	}
+
+	// op succeeds but its answer is unreadable: the login most likely
+	// exists, so this is not reported as a failure.
+	e.opFunc = func([]string) (string, string, error) { return "not json", "", nil }
+	if r := e.ok("generate", "-d", "Odd", "--1password", "--url", "https://odd.example", "--no-copy"); !strings.Contains(r.errOut, "Saved a login") {
+		t.Errorf("stderr = %q", r.errOut)
 	}
 }

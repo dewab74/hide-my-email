@@ -55,6 +55,17 @@ type Fake struct {
 	NoHME bool
 	// HMEURL, if set, is advertised as the Hide My Email service URL.
 	HMEURL string
+	// NoTrustedDevices, if set, is stated in the two-factor options, as
+	// Apple does for most accounts.
+	NoTrustedDevices *bool
+	// RejectAccountLogin makes the setup service refuse every session.
+	RejectAccountLogin bool
+	// RefuseTrust makes the trust endpoint answer with an error.
+	RefuseTrust bool
+	// FailDeleteOf makes deleting the alias with this ID fail.
+	FailDeleteOf string
+	// OmitForwardList leaves the inbox list out of the listing.
+	OmitForwardList bool
 
 	mu           sync.Mutex
 	srp          *srp.Server
@@ -151,7 +162,7 @@ func (f *Fake) serve(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(p, "/auth"):
 		f.serveAuth(w, r, strings.TrimPrefix(p, "/auth"), body, str)
 	case p == "/setup/accountLogin":
-		if f.sessionToken == "" || str("dsWebAuthToken") != f.sessionToken {
+		if f.RejectAccountLogin || f.sessionToken == "" || str("dsWebAuthToken") != f.sessionToken {
 			reply(w, 421, map[string]any{"success": false, "error": "Invalid authentication token"})
 			return
 		}
@@ -284,6 +295,9 @@ func (f *Fake) serveAuth(w http.ResponseWriter, r *http.Request, path string, bo
 		opts := map[string]any{"trustedPhoneNumbers": []map[string]any{
 			{"id": 7, "numberWithDialCode": Phone, "pushMode": map[bool]string{true: "sms", false: "push"}[f.SMSOnly]},
 		}}
+		if f.NoTrustedDevices != nil {
+			opts["noTrustedDevices"] = *f.NoTrustedDevices
+		}
 		if f.SecurityKey {
 			opts["fsaChallenge"] = map[string]any{"challenge": "abc", "rpId": "apple.com"}
 			opts["keyNames"] = []string{"YubiKey"}
@@ -304,6 +318,10 @@ func (f *Fake) serveAuth(w http.ResponseWriter, r *http.Request, path string, bo
 		}
 		checkCode()
 	case "GET /2sv/trust":
+		if f.RefuseTrust {
+			reply(w, 400, serviceError("-1", "trust refused"))
+			return
+		}
 		if f.sessionToken == "" {
 			reply(w, 401, nil)
 			return
@@ -337,8 +355,11 @@ func (f *Fake) serveHME(w http.ResponseWriter, op string, str func(string) strin
 
 	switch op {
 	case "v2/hme/list":
-		ok(map[string]any{"hmeEmails": f.aliases, "selectedForwardTo": f.forwardTo,
-			"forwardToEmails": []string{"tester@icloud.com", "tester@example.com"}})
+		listing := map[string]any{"hmeEmails": f.aliases, "selectedForwardTo": f.forwardTo}
+		if !f.OmitForwardList {
+			listing["forwardToEmails"] = []string{"tester@icloud.com", "tester@example.com"}
+		}
+		ok(listing)
 	case "v1/hme/generate":
 		ok(map[string]any{"hme": f.next("fresh-alias") + "@icloud.com"})
 	case "v1/hme/reserve":
@@ -366,6 +387,10 @@ func (f *Fake) serveHME(w http.ResponseWriter, op string, str func(string) strin
 		case "v1/hme/delete":
 			if a.Active {
 				fail("-41020", "address must be deactivated before it is deleted")
+				return
+			}
+			if a.ID == f.FailDeleteOf {
+				fail("-41099", "delete failed")
 				return
 			}
 			id := a.ID

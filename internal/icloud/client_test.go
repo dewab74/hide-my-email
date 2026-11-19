@@ -305,3 +305,68 @@ func TestDebugTraceLeaksNoSecrets(t *testing.T) {
 		}
 	}
 }
+
+func TestSecondFactorFollowsApplesStatement(t *testing.T) {
+	yes, no := true, false
+	for _, tc := range []struct {
+		name      string
+		textOnly  bool
+		noDevices *bool
+		want      string
+	}{
+		// Phones are reported text-only even on accounts with devices;
+		// Apple's explicit statement decides.
+		{"devices exist", true, &no, "device"},
+		{"no devices", true, &yes, "sms"},
+		{"nothing stated, text-only phones", true, nil, "sms"},
+		{"nothing stated, push phones", false, nil, "device"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := icloudtest.New(t)
+			f.SMSOnly, f.NoTrustedDevices = tc.textOnly, tc.noDevices
+			var got string
+			c := newClient(f, nil)
+			err := c.Login(ctx, icloudtest.AppleID, []byte(icloudtest.Password),
+				func(_ context.Context, req icloud.TwoFactorRequest) (string, error) {
+					got = req.Method
+					return icloudtest.Code, nil
+				})
+			if err != nil || got != tc.want {
+				t.Errorf("method = %q (err %v), want %q", got, err, tc.want)
+			}
+		})
+	}
+}
+
+func TestLoginRefusedBySetupServiceIsNotAnExpiredSession(t *testing.T) {
+	f := icloudtest.New(t)
+	f.RejectAccountLogin = true
+	c := newClient(f, nil)
+	err := c.Login(ctx, icloudtest.AppleID, []byte(icloudtest.Password), giveCode(icloudtest.Code))
+	if err == nil || icloud.IsAuthError(err) || strings.Contains(err.Error(), "hme login") ||
+		!strings.Contains(err.Error(), "refused the new session") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestTrustRefusal(t *testing.T) {
+	f := icloudtest.New(t)
+	first := signedIn(t, f)
+
+	// After a second factor, trust must succeed.
+	f.RefuseTrust = true
+	if err := newClient(f, nil).Login(ctx, icloudtest.AppleID, []byte(icloudtest.Password), giveCode(icloudtest.Code)); err == nil {
+		t.Error("login succeeded although Apple refused to trust a session that did 2FA")
+	}
+	// With a trust token already in hand, a refusal changes nothing.
+	again := newClient(f, &icloud.Session{TrustToken: first.Session().TrustToken, ClientID: first.Session().ClientID})
+	if err := again.Login(ctx, icloudtest.AppleID, []byte(icloudtest.Password), nil); err != nil {
+		t.Errorf("trusted re-login: %v", err)
+	}
+	if again.Session().TrustToken != first.Session().TrustToken {
+		t.Error("the existing trust token was lost")
+	}
+	if _, err := again.List(ctx); err != nil {
+		t.Errorf("List after trusted re-login: %v", err)
+	}
+}

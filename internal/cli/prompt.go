@@ -7,6 +7,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync/atomic"
 
 	"golang.org/x/term"
 )
@@ -29,6 +30,19 @@ type TerminalPrompter struct {
 }
 
 var errNoTerminal = errors.New("no terminal available to prompt on")
+
+// pendingRestore undoes the no-echo mode of a password prompt that is
+// in progress, if there is one.
+var pendingRestore atomic.Pointer[func()]
+
+// RestoreTerminal puts the terminal back to how it was before a hidden
+// prompt that is still waiting for input. main calls it when the process
+// is interrupted, since a blocked terminal read cannot be cancelled.
+func RestoreTerminal() {
+	if restore := pendingRestore.Load(); restore != nil {
+		(*restore)()
+	}
+}
 
 func openTerminal() (f *os.File, closeIt bool, err error) {
 	// #nosec G115 -- file descriptors fit in an int
@@ -97,8 +111,15 @@ func (p TerminalPrompter) Secret(prompt string) ([]byte, error) {
 		defer func() { _ = f.Close() }()
 	}
 	fmt.Fprint(p.Err, prompt)
-	// #nosec G115 -- file descriptors fit in an int
-	secret, err := term.ReadPassword(int(f.Fd()))
+	fd := int(f.Fd()) // #nosec G115 -- file descriptors fit in an int
+	// Reading without echo changes the terminal's mode. If the process is
+	// interrupted mid-read, RestoreTerminal puts it back.
+	if state, err := term.GetState(fd); err == nil {
+		restore := func() { _ = term.Restore(fd, state) }
+		pendingRestore.Store(&restore)
+		defer pendingRestore.Store(nil)
+	}
+	secret, err := term.ReadPassword(fd)
 	fmt.Fprintln(p.Err)
 	if err != nil {
 		return nil, errors.New("could not read hidden input")

@@ -7,27 +7,61 @@ on:
 permissions:
   contents: read
 
+# One release at a time, and never cancel one that is half published.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+# Three jobs, so that each piece of code runs with only the access it
+# needs: the tests get a read-only token, the build gets what publishing a
+# release takes, and only the last, which runs nothing but a small script
+# from main, may push to main.
 jobs:
+  verify:
+    name: verify the tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # A release is only ever cut from history that is on main. A tag on
+      # some other commit must not become what `brew install` hands out.
+      - name: Check the tagged commit is on main
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::$GITHUB_REF_NAME points at $GITHUB_SHA, which is not on main"
+            exit 1
+          fi
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - run: go test -race ./...
+
   release:
+    name: build and publish
+    needs: verify
     runs-on: ubuntu-latest
     permissions:
       contents: write # create the GitHub release
       id-token: write # sign the provenance attestation
-      attestations: write
+      attestations: write # store the provenance attestation
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # changelog needs history
-          # Credentials are kept for the last step, which pushes the
-          # updated Homebrew formula to main.
-          persist-credentials: true
+          persist-credentials: false
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
-      - run: go test -race ./...
+          # Release binaries are built from a clean module download, never
+          # from a cache that an earlier, less trusted run could have filled.
+          cache: false
       - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
-          version: "~> v2"
+          version: v2.20.2
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -35,12 +69,25 @@ jobs:
         with:
           subject-checksums: dist/checksums.txt
 
-      # The repository is its own Homebrew tap: Formula/hme.rb on main is
-      # what `brew install hme` reads. Point it at the binaries just
-      # published, using the checksums computed in this run.
-      - name: Update the Homebrew formula
+  # The repository is its own Homebrew tap: Formula/hme.rb on main is what
+  # `brew install hme` reads. Point it at the binaries just published.
+  formula:
+    name: update the Homebrew formula
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push Formula/hme.rb to main
+    steps:
+      # main, not the tag: the script that writes the formula is the
+      # reviewed one, and the commit lands on top of whatever main is now.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Regenerate and push the formula
         env:
           TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           case "$TAG" in
             *-*)
@@ -48,16 +95,42 @@ jobs:
               exit 0
               ;;
           esac
-          git fetch origin main
-          git switch --force-create main origin/main
-          mkdir -p Formula
-          scripts/update-formula.sh "$TAG" dist/checksums.txt > Formula/hme.rb
-          git add Formula/hme.rb
-          if git diff --cached --quiet; then
-            echo "formula already up to date"
+          new="${TAG#v}"
+
+          # Never move the formula backwards: releasing a patch to an old
+          # line must not downgrade everyone who runs `brew upgrade`.
+          current="$(sed -n 's|.*/releases/download/v\([^/]*\)/.*|\1|p' Formula/hme.rb 2>/dev/null | head -n 1)"
+          if [ -n "$current" ] && [ "$current" != "$new" ] &&
+            [ "$(printf '%s\n%s\n' "$current" "$new" | sort -V | tail -n 1)" = "$current" ]; then
+            echo "formula is at $current, which is newer than $new; leaving it alone"
             exit 0
           fi
+
+          # The checksums come from the release the previous job published.
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern checksums.txt --dir "$RUNNER_TEMP"
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit --message "brew: hme ${TAG#v}"
-          git push origin main
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          # main may move while this runs; start over from its new tip
+          # rather than publish a release with a stale formula.
+          for attempt in 1 2 3; do
+            git fetch --no-tags origin main
+            git reset --hard origin/main
+            mkdir -p Formula
+            scripts/update-formula.sh "$new" "$RUNNER_TEMP/checksums.txt" > Formula/hme.rb
+            git add Formula/hme.rb
+            if git diff --cached --quiet; then
+              echo "formula already up to date"
+              exit 0
+            fi
+            git commit --message "brew: hme $new"
+            if git push "$remote" HEAD:main; then
+              exit 0
+            fi
+            echo "push failed (attempt $attempt); main probably moved"
+            sleep 5
+          done
+          echo "::error::could not push the formula for $new"
+          exit 1

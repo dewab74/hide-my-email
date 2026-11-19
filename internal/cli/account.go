@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/dewab74/hide-my-email/internal/icloud"
 )
@@ -120,11 +122,17 @@ func (a *app) login(ctx context.Context, o loginOptions) error {
 	case o.opItem != "":
 		// already read
 	case o.passwordStdin:
+		// Typed at a terminal it would be echoed for anyone to read.
+		if f, ok := a.In.(*os.File); ok && term.IsTerminal(int(f.Fd())) { // #nosec G115 -- a file descriptor
+			return usagef("--password-stdin expects the password piped in, but stdin is a terminal; drop the flag to be prompted without echo")
+		}
 		line, err := bufio.NewReader(io.LimitReader(a.In, 4096)).ReadBytes('\n')
 		if err != nil && !errors.Is(err, io.EOF) {
+			clear(line)
 			return errors.New("could not read the password from stdin")
 		}
-		password = []byte(strings.TrimRight(string(line), "\r\n"))
+		// Trimmed in place: no second copy of the password is made.
+		password = bytes.TrimRight(line, "\r\n")
 	default:
 		if password, err = a.Prompter.Secret("Password: "); err != nil {
 			return fmt.Errorf("%w (or use --1password or --password-stdin)", err)
@@ -145,7 +153,9 @@ func (a *app) login(ctx context.Context, o loginOptions) error {
 		return err
 	}
 
-	encrypted, err := a.saveSession(st, c)
+	// A new sign-in is the one place a plain file may be chosen, and it
+	// is announced below.
+	encrypted, err := a.saveSession(st, c, true)
 	if err != nil {
 		return err
 	}
@@ -233,7 +243,7 @@ Exits with status 3 when not signed in.`,
 				c := a.newClient(sess)
 				err := c.Refresh(cmd.Context())
 				if c.Changed() {
-					if _, serr := a.saveSession(st, c); serr != nil && err == nil {
+					if _, serr := a.saveSession(st, c, !encrypted); serr != nil && err == nil {
 						err = serr
 					}
 				}

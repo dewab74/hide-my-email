@@ -66,7 +66,8 @@ func Run(ctx context.Context, args []string, d Deps) int {
 	switch {
 	case errors.As(err, &ue):
 		return ExitUsage
-	case icloud.IsAuthError(err), errors.Is(err, store.ErrKeyMissing):
+	case icloud.IsAuthError(err), errors.Is(err, store.ErrKeyMissing), errors.Is(err, store.ErrDowngraded),
+		errors.Is(err, store.ErrUnusable):
 		return ExitAuth
 	}
 	return ExitError
@@ -171,19 +172,21 @@ func (a *app) loadSession(st *store.Store) (sess *icloud.Session, encrypted bool
 	}
 	sess = &icloud.Session{}
 	if err := json.Unmarshal(data, sess); err != nil {
-		return nil, false, errors.New("the stored session is unreadable; run 'hme login'")
+		return nil, false, fmt.Errorf("%w (its contents are unreadable)", store.ErrUnusable)
 	}
 	return sess, encrypted, nil
 }
 
-func (a *app) saveSession(st *store.Store, c *icloud.Client) (encrypted bool, err error) {
+// saveSession persists the client's session. allowPlaintext is false for
+// a session that was loaded encrypted: it must not come back weaker.
+func (a *app) saveSession(st *store.Store, c *icloud.Client, allowPlaintext bool) (encrypted bool, err error) {
 	// The session is serialized on purpose: this is the one place it is
 	// persisted, and the store encrypts it.
 	data, err := json.Marshal(c.Session()) // #nosec G117
 	if err != nil {
 		return false, fmt.Errorf("encoding session: %w", err)
 	}
-	return st.Save(data)
+	return st.Save(data, allowPlaintext)
 }
 
 // withClient runs fn with a signed-in client and persists whatever the
@@ -194,7 +197,7 @@ func (a *app) withClient(ctx context.Context, fn func(c *icloud.Client) error) e
 	if err != nil {
 		return err
 	}
-	sess, _, err := a.loadSession(st)
+	sess, encrypted, err := a.loadSession(st)
 	if err != nil {
 		return err
 	}
@@ -207,7 +210,7 @@ func (a *app) withClient(ctx context.Context, fn func(c *icloud.Client) error) e
 		err = fn(c)
 	}
 	if c.Changed() {
-		if _, serr := a.saveSession(st, c); serr != nil && err == nil {
+		if _, serr := a.saveSession(st, c, !encrypted); serr != nil && err == nil {
 			err = serr
 		}
 	}

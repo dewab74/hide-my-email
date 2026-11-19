@@ -114,16 +114,9 @@ item as its email field.`,
 		Args:              exactArgs(0),
 		ValidArgsFunction: noComplete,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			// Everything that can be checked is checked before asking
+			// the user anything or touching the network.
 			label = strings.TrimSpace(label)
-			if label == "" && !a.json && a.Prompter.Interactive() {
-				var err error
-				if label, err = a.Prompter.Line("Description: "); err != nil {
-					return err
-				}
-			}
-			if label == "" {
-				return usagef("a description is required: hme generate -d \"what it is for\"")
-			}
 			note, username, vault = strings.TrimSpace(note), strings.TrimSpace(username), strings.TrimSpace(vault)
 			switch {
 			case !onePassword && (site != "" || username != "" || vault != ""):
@@ -136,6 +129,15 @@ item as its email field.`,
 				if site, err = siteURL(site); err != nil {
 					return err
 				}
+			}
+			if label == "" && !a.json && a.Prompter.Interactive() {
+				var err error
+				if label, err = a.Prompter.Line("Description: "); err != nil {
+					return err
+				}
+			}
+			if label == "" {
+				return usagef("a description is required: hme generate -d \"what it is for\"")
 			}
 			ctx := cmd.Context()
 			return a.withClient(ctx, func(c *icloud.Client) error {
@@ -160,8 +162,17 @@ item as its email field.`,
 					}
 					ref, err := a.opCreateLogin(ctx, item)
 					if err != nil {
-						// The address exists and is not undone: say so, and
-						// how to finish by hand.
+						// The address exists and is not undone: report it
+						// where a script looks for it, then say what failed
+						// and how to finish by hand.
+						if a.json {
+							_ = a.printJSON(struct {
+								aliasJSON
+								Copied bool `json:"copied"`
+							}{toJSON(*al), copied})
+						} else {
+							fmt.Fprintln(a.Out, safe(al.Address))
+						}
 						return fmt.Errorf("created %s, but saving the login failed: %w\nThe address was kept. To add the login yourself:\n  op %s",
 							safe(al.Address), err, shellQuote(item.args()))
 					}
@@ -329,17 +340,24 @@ func (a *app) copyCmd() *cobra.Command {
 		Use:   "copy TEXT",
 		Short: "Copy an existing address to the clipboard",
 		Long: `Copy the one active address whose address or label contains TEXT.
+A complete address always matches exactly, active or not.
 
-  hme copy acme`,
+  hme copy acme
+
+The address is also written to stdout, even if the clipboard cannot be
+reached (in which case the exit status is 1).`,
 		Args:              exactArgs(1),
 		ValidArgsFunction: a.completeAddresses(1, isActive),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			needle := strings.ToLower(strings.TrimSpace(args[0]))
+			if needle == "" {
+				return usagef("'hme copy' needs some text to look for")
+			}
 			return a.withClient(cmd.Context(), func(c *icloud.Client) error {
 				l, err := c.List(cmd.Context())
 				if err != nil {
 					return err
 				}
-				needle := strings.ToLower(strings.TrimSpace(args[0]))
 				var hits []icloud.Alias
 				for _, al := range l.Aliases {
 					if strings.ToLower(al.Address) == needle {
@@ -361,14 +379,25 @@ func (a *app) copyCmd() *cobra.Command {
 					}
 					return fmt.Errorf("ambiguous match")
 				}
-				if err := a.Copy(hits[0].Address); err != nil {
-					return fmt.Errorf("copying to the clipboard: %w", err)
-				}
+				// The address is printed whether or not the clipboard
+				// works, so the lookup is never wasted.
+				copyErr := a.Copy(hits[0].Address)
 				if a.json {
-					return a.printJSON(toJSON(hits[0]))
+					if err := a.printJSON(struct {
+						aliasJSON
+						Copied bool `json:"copied"`
+					}{toJSON(hits[0]), copyErr == nil}); err != nil {
+						return err
+					}
+				} else {
+					fmt.Fprintln(a.Out, safe(hits[0].Address))
 				}
-				fmt.Fprintln(a.Out, safe(hits[0].Address))
-				fmt.Fprintln(a.Err, "Copied to the clipboard.")
+				if copyErr != nil {
+					return fmt.Errorf("could not copy to the clipboard: %w", copyErr)
+				}
+				if !a.json {
+					fmt.Fprintln(a.Err, "Copied to the clipboard.")
+				}
 				return nil
 			})
 		},
@@ -443,24 +472,45 @@ func (a *app) each(ctx context.Context, args []string, done string,
 		}
 		for i := range targets {
 			if err := apply(c, &targets[i]); err != nil {
-				return fmt.Errorf("%s: %w", safe(targets[i].Address), err)
+				// Stopping midway must not hide what already happened.
+				err = fmt.Errorf("%s: %w", safe(targets[i].Address), err)
+				if i > 0 {
+					finished := make([]string, 0, i)
+					for _, t := range targets[:i] {
+						finished = append(finished, safe(t.Address))
+					}
+					err = fmt.Errorf("%w\n%s before the failure: %s", err, done, strings.Join(finished, ", "))
+				}
+				if rest := len(targets) - i - 1; rest > 0 {
+					err = fmt.Errorf("%w\nNot attempted: %d more", err, rest)
+				}
+				if a.json && i > 0 {
+					_ = a.printBatch(done, targets[:i])
+				}
+				return err
 			}
 			if !a.json {
 				fmt.Fprintf(a.Err, "%s %s.\n", done, safe(targets[i].Address))
 			}
 		}
 		if a.json {
-			if done == "Deleted" {
-				addrs := make([]string, 0, len(targets))
-				for _, t := range targets {
-					addrs = append(addrs, t.Address)
-				}
-				return a.printJSON(map[string]any{"deleted": addrs})
-			}
-			return a.printJSON(toJSONList(targets))
+			return a.printBatch(done, targets)
 		}
 		return nil
 	})
+}
+
+// printBatch writes the JSON result of a batch command: the addresses
+// it actually changed, which on a failure is fewer than were asked for.
+func (a *app) printBatch(done string, finished []icloud.Alias) error {
+	if done != "Deleted" {
+		return a.printJSON(toJSONList(finished))
+	}
+	addrs := make([]string, 0, len(finished))
+	for _, t := range finished {
+		addrs = append(addrs, t.Address)
+	}
+	return a.printJSON(map[string]any{"deleted": addrs})
 }
 
 func (a *app) deactivateCmd() *cobra.Command {
@@ -514,12 +564,13 @@ Asks for confirmation unless --yes is given.`,
 		Args:              minArgs(1, "at least one address"),
 		ValidArgsFunction: a.completeAddresses(0, nil),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Known before signing in or looking anything up.
+			if !yes && !a.Prompter.Interactive() {
+				return usagef("refusing to delete without confirmation; pass --yes")
+			}
 			confirm := func(targets []icloud.Alias) error {
 				if yes {
 					return nil
-				}
-				if !a.Prompter.Interactive() {
-					return usagef("refusing to delete without confirmation; pass --yes")
 				}
 				fmt.Fprintln(a.Err, "This permanently deletes:")
 				for _, t := range targets {
@@ -536,12 +587,20 @@ Asks for confirmation unless --yes is given.`,
 			}
 			return a.each(cmd.Context(), args, "Deleted", confirm, func(c *icloud.Client, al *icloud.Alias) error {
 				// Apple only deletes an address that is deactivated.
+				deactivated := false
 				if al.Active {
 					if err := c.Deactivate(cmd.Context(), al.ID); err != nil {
 						return err
 					}
+					deactivated = true
 				}
-				return c.Delete(cmd.Context(), al.ID)
+				if err := c.Delete(cmd.Context(), al.ID); err != nil {
+					if deactivated {
+						return fmt.Errorf("it was deactivated but not deleted (undo with 'hme reactivate'): %w", err)
+					}
+					return err
+				}
+				return nil
 			})
 		},
 	}
@@ -580,7 +639,11 @@ must be one of the listed choices.`,
 					l.ForwardTo = l.ForwardToOptions[i]
 				}
 				if a.json {
-					return a.printJSON(map[string]any{"forwardTo": l.ForwardTo, "choices": l.ForwardToOptions})
+					choices := l.ForwardToOptions
+					if choices == nil {
+						choices = []string{}
+					}
+					return a.printJSON(map[string]any{"forwardTo": l.ForwardTo, "choices": choices})
 				}
 				for _, o := range l.ForwardToOptions {
 					mark := " "

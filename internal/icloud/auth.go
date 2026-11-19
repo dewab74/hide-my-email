@@ -76,9 +76,13 @@ func (c *Client) Login(ctx context.Context, appleID string, password []byte, cod
 		return err
 	}
 
+	// Asking Apple to trust this installation is what lets later
+	// sign-ins skip the code. After a second factor it must succeed. When
+	// an existing trust token already got us in without one, a refusal
+	// costs nothing: the session is good and the old token still stands.
 	if resp, err := c.auth(ctx, "GET", "/2sv/trust", nil); err != nil {
 		return err
-	} else if resp.status != 200 && resp.status != 204 {
+	} else if resp.status != 200 && resp.status != 204 && c.didTwoFactor {
 		return fmt.Errorf("trusting this session: Apple answered HTTP %d", resp.status)
 	}
 	if c.sess.SessionToken == "" {
@@ -86,6 +90,11 @@ func (c *Client) Login(ctx context.Context, appleID string, password []byte, cod
 	}
 
 	if err := c.accountLogin(ctx); err != nil {
+		// "Session expired, sign in again" would be absurd advice from
+		// the sign-in command itself.
+		if errors.Is(err, ErrSessionExpired) {
+			return errors.New("sign-in succeeded, but iCloud refused the new session; try again in a few minutes")
+		}
 		return err
 	}
 	if c.account.HsaChallengeRequired != nil && *c.account.HsaChallengeRequired {
@@ -162,16 +171,27 @@ func (c *Client) srpSignIn(ctx context.Context, appleID string, password []byte,
 	return signinError("complete", resp)
 }
 
+// Bounds on what Apple may ask of the key derivation. Apple's real
+// values sit well inside them (tens of thousands of iterations, a
+// 16-byte salt).
+const (
+	minIterations = 1000
+	maxIterations = 5_000_000
+	minSaltBytes  = 8
+)
+
 // deriveKey turns the password into the SRP password key. Apple picks
 // the protocol: s2k feeds the SHA-256 digest to PBKDF2, the older
 // s2k_fo feeds its hex form.
 func deriveKey(password, salt []byte, iterations int, protocol string) ([]byte, error) {
-	// The count comes from the network. Bound it so a hostile answer
-	// cannot pin the CPU.
-	if iterations < 1 || iterations > 5_000_000 {
-		return nil, errors.New("sign-in: Apple sent an implausible key-derivation cost")
+	// The count and salt come from the network. Bound them: too high a
+	// count pins the CPU, and a trivial count or salt would make the
+	// proof cheap to brute-force for anyone who could read it.
+	if iterations < minIterations || iterations > maxIterations || len(salt) < minSaltBytes {
+		return nil, errors.New("sign-in: Apple sent implausible key-derivation parameters")
 	}
 	sum := sha256.Sum256(password)
+	defer clear(sum[:])
 	in := sum[:]
 	switch protocol {
 	case "s2k":
@@ -188,9 +208,12 @@ type authOptions struct {
 	PhoneNumberVerification *struct {
 		TrustedPhoneNumbers []trustedPhone `json:"trustedPhoneNumbers"`
 	} `json:"phoneNumberVerification"`
-	FsaChallenge    json.RawMessage `json:"fsaChallenge"`
-	FsaVerification json.RawMessage `json:"fsaVerification"`
-	KeyNames        []string        `json:"keyNames"`
+	// NoTrustedDevices is Apple saying outright whether any device can
+	// show a code. Absent on some accounts, hence the pointer.
+	NoTrustedDevices *bool           `json:"noTrustedDevices"`
+	FsaChallenge     json.RawMessage `json:"fsaChallenge"`
+	FsaVerification  json.RawMessage `json:"fsaVerification"`
+	KeyNames         []string        `json:"keyNames"`
 }
 
 type trustedPhone struct {
@@ -224,10 +247,17 @@ func (c *Client) twoFactor(ctx context.Context, signinBody []byte, code CodeFunc
 	if len(phones) == 0 && opts.PhoneNumberVerification != nil {
 		phones = opts.PhoneNumberVerification.TrustedPhoneNumbers
 	}
+	// A text message is the fallback for accounts with no device to show
+	// a code on. Apple's explicit statement decides when it makes one;
+	// otherwise infer it from every phone being text-only.
 	smsOnly := len(phones) > 0
-	for _, p := range phones {
-		if p.PushMode != "sms" {
-			smsOnly = false
+	if opts.NoTrustedDevices != nil {
+		smsOnly = smsOnly && *opts.NoTrustedDevices
+	} else {
+		for _, p := range phones {
+			if p.PushMode != "sms" {
+				smsOnly = false
+			}
 		}
 	}
 
@@ -264,6 +294,7 @@ func (c *Client) twoFactor(ctx context.Context, signinBody []byte, code CodeFunc
 	}
 	switch {
 	case resp.status == 200 || resp.status == 204 || codeAccepted(resp):
+		c.didTwoFactor = true
 		return nil
 	case resp.status == 400 || resp.status == 401 || resp.status == 403:
 		return errors.New("incorrect verification code")

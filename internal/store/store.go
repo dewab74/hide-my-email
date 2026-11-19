@@ -13,7 +13,9 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,6 +41,19 @@ var aad = []byte("hme-cli session v1")
 // longer in the credential store.
 var ErrKeyMissing = errors.New("the stored session cannot be decrypted (its key is missing from the system credential store); run 'hme login'")
 
+// ErrDowngraded means the session file is unencrypted although this
+// machine holds a session key. hme never writes that combination, so the
+// file was replaced or rolled back by something else.
+var ErrDowngraded = errors.New("the stored session is unencrypted although an encryption key exists for it, so it is not the file hme wrote; run 'hme login'")
+
+// ErrNoKeyring means a session that was stored encrypted cannot be saved
+// encrypted now. It is not quietly written in the clear instead.
+var ErrNoKeyring = errors.New("the system credential store is not available, so the session could not be saved encrypted; unlock it and retry, or run 'hme login'")
+
+// ErrUnusable means the session file exists but cannot be used as it
+// is. Like the others here, the remedy is to sign in again.
+var ErrUnusable = errors.New("the stored session cannot be used; run 'hme login'")
+
 var errMalformedKey = errors.New("malformed session key")
 
 type envelope struct {
@@ -52,6 +67,8 @@ type envelope struct {
 type Store struct {
 	dir       string
 	noKeyring bool
+	// keyUser names this store's key in the credential store.
+	keyUser string
 }
 
 // Dir returns the configuration directory: $HME_CONFIG_DIR if set,
@@ -70,7 +87,23 @@ func Dir() (string, error) {
 // New returns a store in dir. With noKeyring the credential store is
 // never touched and the session is kept as a plain owner-only file.
 func New(dir string, noKeyring bool) *Store {
-	return &Store{dir: dir, noKeyring: noKeyring}
+	return &Store{dir: dir, noKeyring: noKeyring, keyUser: keyUserFor(dir)}
+}
+
+// keyUserFor gives each session directory its own key. The default
+// directory keeps the plain name; any other gets one derived from its
+// path, so signing out of a session kept elsewhere (HME_CONFIG_DIR) does
+// not delete the key of the main one.
+func keyUserFor(dir string) string {
+	if base, err := os.UserConfigDir(); err == nil && filepath.Clean(dir) == filepath.Join(base, "hme") {
+		return keyringUser
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		abs = dir
+	}
+	sum := sha256.Sum256([]byte(filepath.Clean(abs)))
+	return keyringUser + ":" + hex.EncodeToString(sum[:8])
 }
 
 // Path is the session file's location.
@@ -90,8 +123,14 @@ func (s *Store) Load() (data []byte, encrypted bool, err error) {
 	// Refuse a session other users could have read or planted, the way
 	// ssh refuses a loose private key. Windows has no mode bits; the
 	// profile directory's ACL does this job there.
-	if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
-		return nil, false, fmt.Errorf("%s is accessible to other users (mode %04o); fix with 'chmod 600' or delete it and run 'hme login'", path, info.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		if info.Mode().Perm()&0o077 != 0 {
+			return nil, false, fmt.Errorf("%s is accessible to other users (mode %04o); fix with 'chmod 600' or delete it and run 'hme login'", path, info.Mode().Perm())
+		}
+		// A directory others can write to lets them swap the file out.
+		if dir, err := os.Stat(s.dir); err == nil && dir.Mode().Perm()&0o022 != 0 {
+			return nil, false, fmt.Errorf("%s is writable by other users (mode %04o); fix with 'chmod 700'", s.dir, dir.Mode().Perm())
+		}
 	}
 	raw, err := os.ReadFile(path) // #nosec G304 -- the user's own config path
 	if err != nil {
@@ -99,17 +138,26 @@ func (s *Store) Load() (data []byte, encrypted bool, err error) {
 	}
 	var env envelope
 	if err := json.Unmarshal(raw, &env); err != nil || env.Version != 1 {
-		return nil, false, errors.New("the stored session is not in a format this version understands; run 'hme login'")
+		return nil, false, fmt.Errorf("%w (it is not in a format this version understands)", ErrUnusable)
 	}
 
 	switch env.Cipher {
 	case cipherNone:
+		// A plain file is only legitimate where there is no credential
+		// store. If this machine holds a session key, hme would have
+		// encrypted: accepting the file would let anyone who can write it
+		// bypass the authentication GCM gives, by not using GCM.
+		if !s.noKeyring {
+			if _, err := loadKey(s.keyUser); err == nil {
+				return nil, false, ErrDowngraded
+			}
+		}
 		return env.Data, false, nil
 	case cipherGCM:
 		if s.noKeyring {
 			return nil, false, ErrKeyMissing
 		}
-		key, err := loadKey()
+		key, err := loadKey(s.keyUser)
 		if err != nil {
 			return nil, false, ErrKeyMissing
 		}
@@ -127,15 +175,23 @@ func (s *Store) Load() (data []byte, encrypted bool, err error) {
 		}
 		return plain, true, nil
 	}
-	return nil, false, errors.New("the stored session uses an unknown cipher; run 'hme login'")
+	return nil, false, fmt.Errorf("%w (unknown cipher)", ErrUnusable)
 }
 
-// Save writes the session. encrypted is false when no credential store
-// was available and the session went to a plain owner-only file.
-func (s *Store) Save(data []byte) (encrypted bool, err error) {
+// Save writes the session, encrypted whenever a credential store is
+// available. Without one it is written to a plain owner-only file, but
+// only if allowPlaintext: callers pass false for a session they loaded
+// encrypted, so a credential store that has gone away mid-run fails the
+// save instead of silently weakening how the session is kept. encrypted
+// reports what was done.
+func (s *Store) Save(data []byte, allowPlaintext bool) (encrypted bool, err error) {
 	env := envelope{Version: 1, Cipher: cipherNone, Data: data}
 	if !s.noKeyring {
-		if key, kerr := loadOrCreateKey(); kerr == nil {
+		key, kerr := loadOrCreateKey(s.keyUser)
+		if kerr != nil && !allowPlaintext {
+			return false, ErrNoKeyring
+		}
+		if kerr == nil {
 			gcm, err := newGCM(key)
 			if err != nil {
 				return false, err
@@ -148,6 +204,9 @@ func (s *Store) Save(data []byte) (encrypted bool, err error) {
 			encrypted = true
 		}
 	}
+	if !encrypted && !allowPlaintext {
+		return false, ErrNoKeyring
+	}
 	raw, err := json.Marshal(env)
 	if err != nil {
 		return false, fmt.Errorf("encoding session: %w", err)
@@ -159,7 +218,7 @@ func (s *Store) Save(data []byte) (encrypted bool, err error) {
 func (s *Store) Delete() error {
 	if !s.noKeyring {
 		// Best effort: the key is worthless once the file is gone.
-		_ = keyring.Delete(keyringService, keyringUser)
+		_ = keyring.Delete(keyringService, s.keyUser)
 	}
 	if err := os.Remove(s.Path()); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("removing session: %w", err)
@@ -204,8 +263,8 @@ func newGCM(key []byte) (cipher.AEAD, error) {
 	return cipher.NewGCM(block)
 }
 
-func loadKey() ([]byte, error) {
-	enc, err := keyring.Get(keyringService, keyringUser)
+func loadKey(user string) ([]byte, error) {
+	enc, err := keyring.Get(keyringService, user)
 	if err != nil {
 		return nil, err
 	}
@@ -216,8 +275,8 @@ func loadKey() ([]byte, error) {
 	return key, nil
 }
 
-func loadOrCreateKey() ([]byte, error) {
-	key, err := loadKey()
+func loadOrCreateKey(user string) ([]byte, error) {
+	key, err := loadKey(user)
 	if err == nil {
 		return key, nil
 	}
@@ -228,7 +287,7 @@ func loadOrCreateKey() ([]byte, error) {
 	if _, err := rand.Read(key); err != nil {
 		return nil, err
 	}
-	if err := keyring.Set(keyringService, keyringUser, base64.StdEncoding.EncodeToString(key)); err != nil {
+	if err := keyring.Set(keyringService, user, base64.StdEncoding.EncodeToString(key)); err != nil {
 		return nil, err
 	}
 	return key, nil

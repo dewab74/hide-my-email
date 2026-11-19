@@ -142,7 +142,7 @@ Access* on newer systems; it is off when Advanced Data Protection is on).
 | `hme generate -d DESC --1password --url URL [--username NAME] [--vault VAULT]` | The same, and save a login for that site in 1Password with a generated password. See [Signing up with 1Password](#signing-up-with-1password). |
 | `hme list [--active \| --inactive] [-s TEXT] [--sort created\|label\|address] [-q]` | List addresses, newest first. `-q` prints addresses only. Alias: `ls`. |
 | `hme show ADDRESS` | Everything about one address. |
-| `hme copy TEXT` | Copy the one active address whose address or label contains `TEXT`. |
+| `hme copy TEXT` | Copy the one active address whose address or label contains `TEXT`; a complete address matches exactly, active or not. |
 | `hme update ADDRESS [-d DESC] [-n NOTE]` | Change the description or note. `-n ""` clears the note. Alias: `edit`. |
 | `hme deactivate ADDRESS...` | Stop forwarding mail. Reversible. |
 | `hme reactivate ADDRESS...` | Turn a deactivated address back on. Alias: `activate`. |
@@ -191,7 +191,9 @@ own, so they stay put if Apple renames theirs:
 }
 ```
 
-`generate --json` adds `"copied": true|false`.
+`generate --json` and `copy --json` add `"copied": true|false`. When a
+command that takes several addresses fails partway, stdout still carries
+the JSON for the ones it had finished, and stderr says which they were.
 
 Exit codes: `0` success, `1` failure, `2` usage error, `3` not signed in or
 the session expired (run `hme login`).
@@ -297,7 +299,7 @@ To try it in the current shell only: `source <(hme completion bash)` (or
 | Variable | Meaning |
 | --- | --- |
 | `HME_APPLE_ID` | Default Apple ID for `hme login`. |
-| `HME_CONFIG_DIR` | Where the session file lives. Default: the per-user config directory (`~/Library/Application Support/hme`, `~/.config/hme`, `%AppData%\hme`). |
+| `HME_CONFIG_DIR` | Where the session file lives. Default: the per-user config directory (`~/Library/Application Support/hme`, `~/.config/hme`, `%AppData%\hme`). Each directory has its own key in the credential store, so separate directories hold independent sign-ins. |
 | `HME_NO_KEYRING` | If set, never use the system credential store (see below). |
 
 There is deliberately no environment variable or flag for the password
@@ -307,8 +309,9 @@ itself; see [Signing in from a password manager](#signing-in-from-a-password-man
 
 `generate` and `copy` use `pbcopy` on macOS, the Windows clipboard API, and on
 Linux whichever of `wl-copy`, `xclip` or `xsel` is installed. If none is
-available (a headless box, say) the address is still printed and `hme` just
-says it could not copy.
+available (a headless box, say) the address is still printed. `generate`
+then just says it could not copy; `copy`, whose whole job that was, also
+exits with status 1.
 
 ## Security
 
@@ -316,15 +319,19 @@ The short version: your password never leaves your machine and is never
 written anywhere; what is kept is a session, encrypted at rest.
 
 - **No password on the wire or on disk.** Sign-in uses Apple's SRP protocol:
-  the password is used once, in memory, to compute a proof, and the buffer is
-  wiped afterwards.
+  the password is used once, in memory, to compute a proof, and the buffers
+  `hme` controls are wiped afterwards (best effort; a garbage-collected
+  runtime cannot promise more).
 - **The session is encrypted.** It is stored AES-256-GCM encrypted, with the
   key held in the macOS Keychain, Windows Credential Manager or the Linux
   Secret Service. The session file on its own (in a backup, a synced folder,
   a stolen disk image without your login) is useless. Where no credential
   store exists, `hme login` warns and falls back to a plain file readable
   only by you (`0600` in a `0700` directory), and refuses to read it back if
-  those permissions have been loosened.
+  those permissions have been loosened. A plain file is refused outright on
+  a machine that does hold a session key, so encryption cannot be bypassed
+  by swapping the file, and an encrypted session is never quietly re-saved
+  unencrypted.
 - **It only talks to Apple.** Every request is checked to be HTTPS (TLS 1.2+)
   to an `apple.com`, `icloud.com` or `icloud.com.cn` host, including service
   URLs that arrive in Apple's own responses. Redirects are not followed.

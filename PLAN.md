@@ -72,9 +72,10 @@ is needed (TLS, `crypto/pbkdf2`, AES-GCM, `math/big`), and few dependencies.
 Rust would also satisfy "fast compiled binary" but with more code and more
 third-party crates for the same result.
 
-Direct dependencies are kept to four: `spf13/cobra` (CLI),
-`golang.org/x/term` (hidden password input), `atotto/clipboard`, and
-`zalando/go-keyring` (credential store).
+Direct dependencies are kept to five: `spf13/cobra` (CLI, and its `doc`
+package with go-md2man for the manual pages), `golang.org/x/term` (hidden
+password input), `atotto/clipboard`, and `zalando/go-keyring` (credential
+store).
 
 ### Native sign-in rather than browser cookies
 
@@ -133,16 +134,22 @@ save the session if anything in it changed.
 
 | Threat | Mitigation |
 | --- | --- |
-| Password disclosure | Never sent (SRP), never stored, read without echo, buffer wiped; no password environment variable or flag. |
-| Session file read from backup, sync or another account | AES-256-GCM, key in the OS credential store; fallback file is `0600` in a `0700` directory and is rejected if looser. |
-| Session file tampering | GCM authentication with bound associated data; failure means "sign in again". |
-| Credentials sent to a non-Apple host | HTTPS-only allow-list on every request URL and cookie domain; no redirects. |
-| Hostile server parameters | SRP rejects `B ≡ 0 (mod N)` and `u = 0`; PBKDF2 iteration count bounded; response size capped. |
-| Secrets in logs, errors or bug reports | Debug trace has no headers, bodies or query strings; errors redact query strings; a test asserts the trace contains no secret. |
-| Terminal escape injection via labels | Control and format characters stripped from network text before printing. |
-| Accidental deletion | Exact match, preview, confirmation. |
+| Password disclosure | Never sent (SRP), never stored, read without echo; no password environment variable or flag; `--password-stdin` refuses a terminal. Buffers `hme` controls are wiped after use. That is best effort: Go strings and the garbage collector mean copies can outlive it, notably a password that arrived from `op` as JSON. |
+| Session file read from backup, sync or another account | AES-256-GCM, key in the OS credential store. Without a credential store the fallback is a `0600` file in a `0700` directory; on Unix it is rejected if the file is readable by others or the directory is writable by others. Windows relies on the profile directory's ACL and is not checked. |
+| Session file tampering or substitution | GCM authentication with bound associated data. A plaintext file is refused when this machine holds a session key, so encryption cannot be sidestepped by swapping in an unencrypted file, and a session loaded encrypted is never re-saved in the clear. Not covered: rolling back to an older encrypted copy of the same session. |
+| Credentials sent to a non-Apple host | HTTPS-only allow-list on every request URL and cookie domain; no redirects. Cookies are scoped by domain; path and expiry are not tracked, so an expired cookie may be re-sent to the Apple host that issued it. |
+| Hostile server parameters | SRP rejects `B ≡ 0 (mod N)` and `u = 0`; PBKDF2 iteration count and salt length bounded in both directions; response size capped. |
+| Secrets in logs, errors or bug reports | Debug trace has no headers, bodies or query strings; endpoint names are percent-encoded and cleaned; a test asserts the trace contains no secret. `op`'s output is never printed. |
+| Terminal escape injection | Control and format characters stripped from network text, endpoint names and `op` error text before printing. |
+| Accidental deletion | Exact match, preview, confirmation. Deleting an active address deactivates it first; if the delete then fails, the error says it was left deactivated, and a batch reports what was already done. |
+| Argument injection into `op` | Run with an argument list and no shell or stdin; values attached to flags with `=`; names and assignments after `--`. |
 | Secrets committed to the repo | gitleaks and detect-secrets hooks at commit time, CI backstop, ignore rules. |
-| Supply chain | Four direct dependencies, `go.sum`, Dependabot, govulncheck in CI, actions pinned by commit SHA, least-privilege workflow permissions, release provenance attestations. |
+| Supply chain | Five direct dependencies, `go.sum`, Dependabot, govulncheck in CI, actions pinned by commit SHA and tools by version. The release runs as three jobs: tests with a read-only token, the build with release and attestation rights and no build cache, and a formula job that alone may push to `main`. A tag must be on `main` to release, and the Homebrew formula never moves to an older version. Pre-commit hooks are pinned by tag, not SHA. |
+
+Reviewed on 2026-11-19 by two independent passes (security and
+correctness) and scanned with grype, trivy, govulncheck, gosec, gitleaks,
+zizmor and actionlint; the findings and what was done about each are in
+git history under "review".
 
 Out of scope: an attacker already running code as the logged-in user.
 

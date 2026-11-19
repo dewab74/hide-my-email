@@ -30,7 +30,8 @@ Still to verify:
 - [ ] `hme forward EMAIL` (changing the inbox). Not run on purpose: it
       changes forwarding for every address on the account
 - [ ] `hme login` on an SMS-only account, and which second-factor path the
-      login above took
+      login above took. The choice now follows Apple's `noTrustedDevices`
+      statement when present; whether real accounts send it is unconfirmed
 - [ ] Second `hme login` reuses the trust token and skips the code
 - [ ] `generate` with no note (an empty `note` on `reserve`)
 - [ ] Confirm which status codes the setup and mail-domain services return
@@ -140,6 +141,28 @@ Not planned yet; written down so they are not lost.
     the session out of the browser, which is the safer design
   - Safari extensions ship inside a signed macOS app, so this likely
     shares a container app with the menu bar item
+
+## From the 2026-11-19 review, not fixed
+
+Accepted for now, with the reason:
+
+- [ ] SRP hashes `S`, `A` and `B` padded to the group size, following
+      ihme-cli. Clients derived from pysrp hash them unpadded, which
+      differs only when a value has a leading zero byte (about 1 login in
+      100). If a correct password is ever rejected and a retry works, this
+      is the first suspect. Needs a test vector from a real exchange
+- [ ] Cookies are stored without path or expiry. An expired one may be
+      re-sent to the Apple host that set it; dropping them locally risks
+      needless re-authentication, so they are left to Apple to refuse
+- [ ] An attacker who can write the session file can roll it back to an
+      older encrypted copy (the associated data is constant)
+- [ ] Windows: the session file's ACL is not checked
+- [ ] Two `hme` processes at once (a command and a Tab completion) are
+      last-writer-wins on the session file; it self-heals on the next
+      call. Needs the file lock listed under Later
+- [ ] Pre-commit hook revisions are tags, not commit SHAs
+- [ ] `main` is not a protected branch, and there is no tag protection
+      rule; both are repository settings
 
 ## Known limitations
 

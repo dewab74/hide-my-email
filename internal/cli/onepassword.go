@@ -50,9 +50,9 @@ func (a *app) opCredentials(ctx context.Context, item, vault string) (username s
 	if item == "" {
 		return "", nil, usagef("--1password needs the name or ID of a 1Password item")
 	}
-	args := []string{"item", "get", "--fields", "label=username,label=password", "--reveal", "--format", "json"}
+	args := []string{"item", "get", "--fields=label=username,label=password", "--reveal", "--format=json"}
 	if vault != "" {
-		args = append(args, "--vault", vault)
+		args = append(args, "--vault="+vault)
 	}
 	// After "--" nothing is a flag, so an item name cannot be mistaken
 	// for an option to op.
@@ -110,9 +110,9 @@ func (a *app) op(ctx context.Context, args []string) ([]byte, error) {
 // opReady confirms, before anything is created at Apple, that op is
 // installed, unlocked, and can see the vault the item is meant for.
 func (a *app) opReady(ctx context.Context, vault string) error {
-	args := []string{"vault", "list", "--format", "json"}
+	args := []string{"vault", "list", "--format=json"}
 	if vault != "" {
-		args = []string{"vault", "get", "--format", "json", "--", vault}
+		args = []string{"vault", "get", "--format=json", "--", vault}
 	}
 	out, err := a.op(ctx, args)
 	clear(out)
@@ -132,10 +132,12 @@ type loginItem struct {
 // args is the op command line that creates the item. It carries no
 // secret: 1Password generates the password itself and keeps it.
 func (it loginItem) args() []string {
-	args := []string{"item", "create", "--category", "login", "--title", it.Title, "--url", it.URL,
-		"--generate-password", "--format", "json"}
+	// Values are attached to their flags with "=", so a title or vault
+	// that begins with a dash is still unmistakably a value.
+	args := []string{"item", "create", "--category=login", "--title=" + it.Title, "--url=" + it.URL,
+		"--generate-password", "--format=json"}
 	if it.Vault != "" {
-		args = append(args, "--vault", it.Vault)
+		args = append(args, "--vault="+it.Vault)
 	}
 	// Assignments follow "--", so none can be read as a flag.
 	args = append(args, "--", "username="+it.Username)

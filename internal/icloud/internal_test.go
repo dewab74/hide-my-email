@@ -116,19 +116,39 @@ func TestJarScopesCookiesLikeABrowser(t *testing.T) {
 }
 
 func TestDeriveKey(t *testing.T) {
-	salt := []byte("salt")
-	a, err := deriveKey([]byte("pw"), salt, 10, "s2k")
+	salt := []byte("0123456789abcdef")
+	a, err := deriveKey([]byte("pw"), salt, 1000, "s2k")
 	if err != nil || len(a) != 32 {
 		t.Fatalf("s2k: %x, %v", a, err)
 	}
-	b, err := deriveKey([]byte("pw"), salt, 10, "s2k_fo")
+	b, err := deriveKey([]byte("pw"), salt, 1000, "s2k_fo")
 	if err != nil || string(a) == string(b) {
 		t.Fatalf("s2k_fo: %x, %v", b, err)
 	}
-	for _, n := range []int{0, -1, 50_000_000} {
+	// Parameters a hostile server might send to make the proof cheap to
+	// attack, or to stall the client.
+	for _, n := range []int{0, -1, 1, 999, 50_000_000} {
 		if _, err := deriveKey([]byte("pw"), salt, n, "s2k"); err == nil {
 			t.Errorf("iteration count %d was accepted", n)
 		}
+	}
+	for _, short := range [][]byte{nil, {}, []byte("short")} {
+		if _, err := deriveKey([]byte("pw"), short, 1000, "s2k"); err == nil {
+			t.Errorf("a %d-byte salt was accepted", len(short))
+		}
+	}
+}
+
+func TestEndpointNamesCannotDriveTheTerminal(t *testing.T) {
+	// A service URL from the network, with an escape sequence and a
+	// newline percent-encoded into its path, and identifiers in the query.
+	u := mustURL("https://p1-maildomainws.icloud.com/v1/%1b%5d0;pwned%07%0aforged/hme?dsid=123&clientId=abc")
+	got := endpointOf(u)
+	if strings.ContainsAny(got, "\x1b\x07\n") || strings.Contains(got, "dsid") || strings.Contains(got, "?") {
+		t.Errorf("endpointOf = %q", got)
+	}
+	if !strings.HasPrefix(got, "p1-maildomainws.icloud.com/v1/") {
+		t.Errorf("endpointOf = %q", got)
 	}
 }
 

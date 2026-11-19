@@ -53,10 +53,12 @@ type Client struct {
 	authAttr  string
 	// fresh means Apple minted this session in this process. If a
 	// service refuses a fresh session, minting another cannot help.
-	fresh   bool
-	account *accountInfo
-	changed bool
-	debug   io.Writer
+	fresh bool
+	// didTwoFactor means this sign-in went through a second factor.
+	didTwoFactor bool
+	account      *accountInfo
+	changed      bool
+	debug        io.Writer
 }
 
 // Option configures a Client.
@@ -143,12 +145,20 @@ func (c *Client) checkURL(raw string) (*url.URL, error) {
 	return u, nil
 }
 
+// endpointOf names a request for traces and errors: host and path, no
+// query string (it carries account identifiers). Service URLs can come
+// from the network, so the path is kept percent-encoded and the whole
+// thing is cleaned before it can reach a terminal.
+func endpointOf(u *url.URL) string {
+	return clean(u.Host+u.EscapedPath(), 200)
+}
+
 func (c *Client) send(ctx context.Context, method, rawURL string, headers map[string]string, body any) (*response, error) {
 	u, err := c.checkURL(rawURL)
 	if err != nil {
 		return nil, err
 	}
-	endpoint := u.Host + u.Path
+	endpoint := endpointOf(u)
 
 	var rd io.Reader
 	if body != nil {
@@ -209,8 +219,11 @@ func (c *Client) service(ctx context.Context, method, rawURL string, body any) (
 		return nil, err
 	}
 	if resp.status < 200 || resp.status > 299 {
-		u, _ := url.Parse(rawURL)
-		return resp.body, &HTTPError{Status: resp.status, Endpoint: u.Host + u.Path, Detail: errorDetail(resp.body)}
+		endpoint := "iCloud"
+		if u, err := url.Parse(rawURL); err == nil {
+			endpoint = endpointOf(u)
+		}
+		return resp.body, &HTTPError{Status: resp.status, Endpoint: endpoint, Detail: errorDetail(resp.body)}
 	}
 	return resp.body, nil
 }
@@ -239,7 +252,9 @@ func (c *Client) setupURL() string {
 	switch {
 	case c.setupBase != "":
 		return c.setupBase
-	case c.sess.AccountCountry == "CN":
+	// Apple's account-country header is a three-letter code; the two-
+	// letter form appears in other answers. Accept either.
+	case c.sess.AccountCountry == "CHN" || c.sess.AccountCountry == "CN":
 		return defaultSetupCN
 	}
 	return defaultSetup

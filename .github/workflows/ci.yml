@@ -32,6 +32,7 @@ jobs:
       - run: go test -race ./...
 
   cross-compile:
+    name: cross-compile
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -50,6 +51,7 @@ jobs:
           done
 
   vulncheck:
+    name: govulncheck
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -58,7 +60,7 @@ jobs:
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
-      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
 
   # Linting and secret scanning are enforced by the local pre-commit hooks,
   # before a commit exists. This job runs the very same config, only to catch
@@ -77,5 +79,5 @@ jobs:
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
-      - run: python -m pip install --disable-pip-version-check pre-commit
+      - run: python -m pip install --disable-pip-version-check pre-commit==4.7.0
       - run: pre-commit run --all-files --show-diff-on-failure

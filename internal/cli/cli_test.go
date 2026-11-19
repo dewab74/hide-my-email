@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -564,7 +565,7 @@ func TestLoginWith1Password(t *testing.T) {
 	if got := strings.Join(e.prompter.asked, "|"); got != "Verification code: " {
 		t.Errorf("prompts = %q", got)
 	}
-	want := "item get --fields label=username,label=password --reveal --format json --vault Private -- Apple ID"
+	want := "item get --fields=label=username,label=password --reveal --format=json --vault=Private -- Apple ID"
 	if len(e.opArgs) != 1 || strings.Join(e.opArgs[0], " ") != want {
 		t.Errorf("op was run with %q", e.opArgs)
 	}
@@ -661,10 +662,10 @@ func TestGenerateWith1Password(t *testing.T) {
 	if len(e.opArgs) != 2 {
 		t.Fatalf("op calls = %q", e.opArgs)
 	}
-	if got := strings.Join(e.opArgs[0], " "); got != "vault list --format json" {
+	if got := strings.Join(e.opArgs[0], " "); got != "vault list --format=json" {
 		t.Errorf("preflight = %q", got)
 	}
-	want := "item create --category login --title Acme store --url https://acme.example/signup --generate-password --format json -- username=" + addr
+	want := "item create --category=login --title=Acme store --url=https://acme.example/signup --generate-password --format=json -- username=" + addr
 	if got := strings.Join(e.opArgs[1], " "); got != want {
 		t.Errorf("create =\n %q, want\n %q", got, want)
 	}
@@ -681,11 +682,11 @@ func TestGenerateWith1Password(t *testing.T) {
 	if got.OnePassword.ID != "itemid123" || got.OnePassword.Vault != "Private" || got.Copied {
 		t.Errorf("json = %+v", got)
 	}
-	if pre := strings.Join(e.opArgs[0], " "); pre != "vault get --format json -- Private" {
+	if pre := strings.Join(e.opArgs[0], " "); pre != "vault get --format=json -- Private" {
 		t.Errorf("preflight = %q", pre)
 	}
 	create := strings.Join(e.opArgs[1], "|")
-	for _, part := range []string{"--vault|Private", "--|username=kettlefan", "email[email]=" + got.Address, "notesPlain=kettle talk"} {
+	for _, part := range []string{"--vault=Private", "--|username=kettlefan", "email[email]=" + got.Address, "notesPlain=kettle talk"} {
 		if !strings.Contains(create, part) {
 			t.Errorf("create args %q lack %q", create, part)
 		}
@@ -749,9 +750,12 @@ func TestGenerateWith1PasswordFailures(t *testing.T) {
 		t.Fatalf("exit %d, aliases %d", r.code, len(as))
 	}
 	addr := as[len(as)-1].Address
+	if strings.TrimSpace(r.out) != addr {
+		t.Errorf("stdout = %q, want the address that was created", r.out)
+	}
 	for _, want := range []string{
 		"created " + addr, "could not create the item", "The address was kept",
-		`op item create --category login --title 'Bob'\''s shop' --url https://bob.example --generate-password --format json -- username=` + addr,
+		`op item create --category=login '--title=Bob'\''s shop' --url=https://bob.example --generate-password --format=json -- username=` + addr,
 	} {
 		if !strings.Contains(r.errOut, want) {
 			t.Errorf("stderr lacks %q:\n%s", want, r.errOut)
@@ -766,5 +770,107 @@ func TestGenerateWith1PasswordFailures(t *testing.T) {
 	e.opFunc = func([]string) (string, string, error) { return "not json", "", nil }
 	if r := e.ok("generate", "-d", "Odd", "--1password", "--url", "https://odd.example", "--no-copy"); !strings.Contains(r.errOut, "Saved a login") {
 		t.Errorf("stderr = %q", r.errOut)
+	}
+}
+
+func TestCopyReportsTheAddressEvenWithoutAClipboard(t *testing.T) {
+	e := newEnv(t)
+	e.login()
+	const addr = "news-letter.1b@icloud.com"
+
+	e.copyErr = errors.New("no display")
+	r := e.run("", "copy", "newsl")
+	if r.code != cli.ExitError || strings.TrimSpace(r.out) != addr || !strings.Contains(r.errOut, "could not copy") {
+		t.Errorf("exit %d, stdout %q, stderr %q", r.code, r.out, r.errOut)
+	}
+	r = e.run("", "copy", "newsl", "--json")
+	if got := decode[alias](t, r.out); r.code != cli.ExitError || got.Address != addr || got.Copied {
+		t.Errorf("json: exit %d, %+v", r.code, got)
+	}
+	e.copyErr = nil
+	if got := decode[alias](t, e.ok("copy", "newsl", "--json").out); !got.Copied {
+		t.Errorf("copied flag missing: %+v", got)
+	}
+
+	// Empty text would match everything.
+	for _, text := range []string{"", "   "} {
+		if r := e.run("", "copy", text); r.code != cli.ExitUsage {
+			t.Errorf("copy %q: exit %d", text, r.code)
+		}
+	}
+	// A complete address matches even when inactive.
+	if out := e.ok("copy", "OLD-shop.0a@icloud.com").out; strings.TrimSpace(out) != "old-shop.0a@icloud.com" {
+		t.Errorf("exact inactive address: %q", out)
+	}
+}
+
+func TestBatchFailureReportsWhatWasDone(t *testing.T) {
+	e := newEnv(t)
+	e.login()
+	e.ok("generate", "-d", "Third", "--no-copy")
+	const first, second = "old-shop.0a@icloud.com", "news-letter.1b@icloud.com"
+	third := e.fake.Aliases()[2].Address
+	e.fake.FailDeleteOf = "id-2" // the newsletter address
+
+	r := e.run("", "delete", "--yes", "--json", first, second, third)
+	if r.code != cli.ExitError {
+		t.Fatalf("exit %d", r.code)
+	}
+	// stdout still accounts for what is already gone.
+	if got := decode[map[string][]string](t, r.out); len(got["deleted"]) != 1 || got["deleted"][0] != first {
+		t.Errorf("partial result = %v", got)
+	}
+	for _, want := range []string{second + ": it was deactivated but not deleted", "Deleted before the failure: " + first, "Not attempted: 1 more"} {
+		if !strings.Contains(r.errOut, want) {
+			t.Errorf("stderr lacks %q:\n%s", want, r.errOut)
+		}
+	}
+	var left []string
+	for _, a := range e.fake.Aliases() {
+		left = append(left, fmt.Sprintf("%s active=%v", a.Address, a.Active))
+	}
+	if want := []string{second + " active=false", third + " active=true"}; strings.Join(left, "|") != strings.Join(want, "|") {
+		t.Errorf("account afterwards = %q, want %q", left, want)
+	}
+}
+
+func TestChecksThatNeedNoNetworkComeFirst(t *testing.T) {
+	e := newEnv(t) // not signed in: anything that reaches iCloud exits 3
+
+	// delete with no terminal and no --yes is refused outright.
+	if r := e.run("", "delete", "a@icloud.com"); r.code != cli.ExitUsage {
+		t.Errorf("delete: exit %d, %s", r.code, r.errOut)
+	}
+	// generate validates its flags before asking for a description.
+	e.prompter.interactive = true
+	if r := e.run("", "generate", "--url", "https://a.example"); r.code != cli.ExitUsage || len(e.prompter.asked) != 0 {
+		t.Errorf("generate: exit %d, prompted %q", r.code, e.prompter.asked)
+	}
+}
+
+func TestUnusableSessionFileAsksForLogin(t *testing.T) {
+	e := newEnv(t)
+	if err := os.MkdirAll(e.dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, content := range []string{"garbage", `{"version":1,"cipher":"none","data":"bm90IGpzb24="}`} {
+		if err := os.WriteFile(filepath.Join(e.dir, "session.json"), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if r := e.run("", "list"); r.code != cli.ExitAuth || !strings.Contains(r.errOut, "hme login") {
+			t.Errorf("%q: exit %d, %s", content, r.code, r.errOut)
+		}
+	}
+	// And signing in again repairs it.
+	e.login()
+	e.ok("list")
+}
+
+func TestForwardChoicesAreNeverNull(t *testing.T) {
+	e := newEnv(t)
+	e.login()
+	e.fake.OmitForwardList = true
+	if out := e.ok("forward", "--json").out; !strings.Contains(out, `"choices": []`) {
+		t.Errorf("forward --json = %s", out)
 	}
 }

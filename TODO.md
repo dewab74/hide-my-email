@@ -21,7 +21,7 @@ Nothing here can be automated: each item needs a real Apple Account.
 - [ ] Session storage on each OS: macOS Keychain, Windows Credential
       Manager, GNOME Keyring/KWallet, and the no-keyring fallback
 - [ ] Clipboard on Wayland, X11, Windows Terminal and over SSH
-- [ ] Tag `v0.1.0` and check the release workflow end to end
+- [x] Tag `v0.1.0` and check the release workflow end to end
 
 ## Next (0.3)
 
@@ -30,7 +30,10 @@ Nothing here can be automated: each item needs a real Apple Account.
 - [ ] China-region accounts: follow the region hint in a 421 answer rather
       than relying on the account-country header alone
 - [ ] Explain Advanced Data Protection (`pcsRequired`) accounts specifically
-- [ ] Homebrew tap, Scoop bucket, winget manifest
+- [x] Homebrew formula for macOS and Linux, served from this repository
+- [ ] A dedicated `homebrew-tap` repository, so installing is the single
+      command `brew install dewab74/tap/hme`
+- [ ] Scoop bucket and winget manifest for Windows
 - [ ] Sign and notarize the macOS binaries; sign the Windows ones
 - [ ] `hme login` should offer a choice when several trusted phone numbers
       exist

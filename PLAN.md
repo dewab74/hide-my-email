@@ -158,12 +158,14 @@ first milestone below.
 
 ## Milestones
 
-1. **0.1, done:** everything above, tested against the fake.
+1. **0.1, released:** everything above, tested against the fake;
+   binaries, checksums and a Homebrew formula published by the release
+   workflow.
 2. **0.2, live verification:** sign in and run each verb against real
    accounts (device 2FA, SMS 2FA, a repeat login with a trust token) on all
-   three operating systems; fix what differs; tag the first release.
+   three operating systems; fix what differs.
 3. **0.3, reach:** hardware security key sign-in, China-region accounts,
-   Homebrew/Scoop/winget packaging, signed and notarized macOS binaries.
+   Scoop/winget packaging, signed and notarized macOS binaries.
 4. **0.4, 1Password:** given a URL and a description (and optionally a
    username), create the address and a 1Password login for that site in one
    step, with the password generated and held by 1Password via the `op`

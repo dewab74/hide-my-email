@@ -1,5 +1,10 @@
 # hme
 
+[![CI](https://github.com/dewab74/hide-my-email/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/dewab74/hide-my-email/actions/workflows/ci.yml)
+[![Release](https://github.com/dewab74/hide-my-email/actions/workflows/release.yml/badge.svg)](https://github.com/dewab74/hide-my-email/actions/workflows/release.yml)
+[![Latest release](https://img.shields.io/github/v/release/dewab74/hide-my-email)](https://github.com/dewab74/hide-my-email/releases/latest)
+[![License: MIT](https://img.shields.io/github/license/dewab74/hide-my-email)](LICENSE)
+
 A command-line tool for iCloud+ **Hide My Email**. Create a throwaway address
 in one command, have it land on your clipboard, and list, relabel, pause or
 delete the ones you already have.
@@ -14,21 +19,73 @@ Copied to the clipboard.
 iCloud itself (Apple ID, password, two-factor code), so it needs no browser,
 no cookie export and no other runtime.
 
-> **Status: early.** The whole flow is covered by tests against a
-> protocol-faithful fake of Apple's services, but Apple publishes no API for
-> Hide My Email and this release has not yet been exercised against the live
-> service. See [TODO.md](TODO.md). Expect to report a bug or two.
+> **Status: early, and vibe-coded.** This project was written almost
+> entirely by Claude (Anthropic's AI model, via Claude Code) under my
+> direction, including the sign-in and cryptography code. It has an
+> extensive test suite that runs against a protocol-faithful fake of Apple's
+> services, but it has had no independent security review, Apple publishes
+> no API for Hide My Email, and this release has not yet been exercised
+> against the live service. Read the code before you trust it with your
+> Apple Account, and expect to report a bug or two. See [TODO.md](TODO.md).
 
 ## Why this exists
 
-In part, because 1Password has no Hide My Email integration: it cannot
-create an iCloud address for you when you sign up somewhere, so doing that
-means a detour through Settings or icloud.com. `hme` closes that gap from
+I wrote `hme` to scratch my own itch: I wanted Hide My Email addresses from
+a terminal, on my own machines, without clicking through Settings. It is
+shared in case it is useful to someone else, not as a supported product.
+
+In part, that itch exists because 1Password has no Hide My Email
+integration: it cannot create an iCloud address for you when you sign up
+somewhere, so doing that means a detour through Settings or icloud.com. `hme` closes that gap from
 the command line, and [pairing it with 1Password](TODO.md#1password-integration-04)
 is planned. If 1Password adds Hide My Email support itself, this project
 may become unnecessary.
 
 ## Install
+
+### Homebrew (macOS and Linux)
+
+```bash
+brew tap dewab74/hide-my-email https://github.com/dewab74/hide-my-email
+```
+
+```bash
+brew install hme
+```
+
+This installs the prebuilt binary for your platform, verified against its
+published SHA-256, along with shell completions for bash, zsh and fish.
+Later:
+
+```bash
+brew upgrade hme
+```
+
+```bash
+brew uninstall hme && brew untap dewab74/hide-my-email
+```
+
+### Prebuilt binaries
+
+Every [release](https://github.com/dewab74/hide-my-email/releases) has
+archives for macOS, Linux and Windows on amd64 and arm64, plus
+`checksums.txt`. Download the archive for your platform and `checksums.txt`
+into the same directory, then verify before unpacking:
+
+```bash
+shasum -a 256 --check --ignore-missing checksums.txt
+```
+
+Releases also carry a build provenance attestation, which proves the archive
+was built by this repository's release workflow:
+
+```bash
+gh attestation verify hme_0.1.0_darwin_arm64.tar.gz --repo dewab74/hide-my-email
+```
+
+Unpack it and put `hme` (`hme.exe` on Windows) somewhere on your `PATH`.
+
+### From source
 
 With Go 1.27 or newer:
 
@@ -36,11 +93,7 @@ With Go 1.27 or newer:
 go install github.com/dewab74/hide-my-email/cmd/hme@latest
 ```
 
-Or download a binary for your platform from the
-[releases page](https://github.com/dewab74/hide-my-email/releases), check it
-against `checksums.txt`, and put it on your `PATH`.
-
-From a clone:
+Or from a clone:
 
 ```bash
 make build      # produces ./hme
@@ -217,10 +270,22 @@ internal/icloud/          sign-in, session handling, Hide My Email API
 internal/icloud/icloudtest/   fake Apple for tests
 internal/srp/             SRP-6a as Apple uses it
 internal/store/           encrypted session storage
+Formula/hme.rb            Homebrew formula, generated on release
+scripts/                  release helpers
 ```
 
-Releases are cut by pushing a `v*` tag; GoReleaser builds the six
-platform binaries with checksums and build provenance attestations.
+### Releasing
+
+```bash
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+Pushing a `v*` tag runs the release workflow: it runs the tests, has
+GoReleaser build the six platform binaries and `checksums.txt`, publishes
+them as a GitHub release with a provenance attestation, and then regenerates
+`Formula/hme.rb` from those checksums (`scripts/update-formula.sh`) and
+commits it to `main`, which is what `brew upgrade` picks up. Pre-release tags
+such as `v0.2.0-rc1` are published but leave the formula alone.
 
 ## Acknowledgements
 

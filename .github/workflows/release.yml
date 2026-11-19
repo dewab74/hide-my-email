@@ -18,7 +18,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # changelog needs history
-          persist-credentials: false
+          # Credentials are kept for the last step, which pushes the
+          # updated Homebrew formula to main.
+          persist-credentials: true
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
@@ -32,3 +34,30 @@ jobs:
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-checksums: dist/checksums.txt
+
+      # The repository is its own Homebrew tap: Formula/hme.rb on main is
+      # what `brew install hme` reads. Point it at the binaries just
+      # published, using the checksums computed in this run.
+      - name: Update the Homebrew formula
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          case "$TAG" in
+            *-*)
+              echo "$TAG is a pre-release; leaving the formula alone"
+              exit 0
+              ;;
+          esac
+          git fetch origin main
+          git switch --force-create main origin/main
+          mkdir -p Formula
+          scripts/update-formula.sh "$TAG" dist/checksums.txt > Formula/hme.rb
+          git add Formula/hme.rb
+          if git diff --cached --quiet; then
+            echo "formula already up to date"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --message "brew: hme ${TAG#v}"
+          git push origin main

@@ -84,6 +84,33 @@ hme generate -d "Acme store" --1password --url https://acme.example [--username 
 - [ ] Man page generated from the command tree
 - [ ] `hme logout --everywhere` if Apple exposes a way to end the web session
 
+## Ideas
+
+Not planned yet; written down so they are not lost.
+
+- [ ] macOS menu bar item to generate and manage addresses: one click (or a
+      global shortcut) for a new address on the clipboard, plus a recent
+      list with copy, deactivate and delete. Open questions:
+  - a thin native app (Swift) that calls `hme --json`, so the CLI stays
+    the single implementation, versus a separate client
+  - it would be a long-running GUI process, which PLAN.md currently lists
+    as a non-goal; it should live in its own directory or repository so
+    the CLI stays a small static binary
+  - how to prompt for sign-in and the two-factor code without a terminal
+  - signing and notarization, which a menu bar app needs to be usable
+- [ ] Safari extension to generate an address while filling in a sign-up
+      form. Open questions:
+  - Safari already offers Hide My Email in email fields for iCloud+
+    users, so the extension has to add something Safari lacks: setting
+    the label and note from the page, creating the 1Password login in
+    the same step, or managing existing addresses
+  - whether Chrome and Firefox, which have no built-in Hide My Email,
+    are the more useful target; a WebExtension could cover all three
+  - how the extension reaches `hme`: native messaging to the CLI keeps
+    the session out of the browser, which is the safer design
+  - Safari extensions ship inside a signed macOS app, so this likely
+    shares a container app with the menu bar item
+
 ## Known limitations
 
 - The iCloud web API is private and can change without notice.

@@ -19,6 +19,15 @@ no cookie export and no other runtime.
 > Hide My Email and this release has not yet been exercised against the live
 > service. See [TODO.md](TODO.md). Expect to report a bug or two.
 
+## Why this exists
+
+In part, because 1Password has no Hide My Email integration: it cannot
+create an iCloud address for you when you sign up somewhere, so doing that
+means a detour through Settings or icloud.com. `hme` closes that gap from
+the command line, and [pairing it with 1Password](TODO.md#1password-integration-04)
+is planned. If 1Password adds Hide My Email support itself, this project
+may become unnecessary.
+
 ## Install
 
 With Go 1.27 or newer:

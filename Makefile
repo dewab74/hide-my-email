@@ -1,7 +1,7 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
-.PHONY: build install man test lint vuln hooks check clean
+.PHONY: build install man demo test lint vuln hooks check clean
 
 build: ## build ./hme
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o hme ./cmd/hme
@@ -11,6 +11,9 @@ install: ## install hme into GOBIN
 
 man: ## generate the manual pages into ./man
 	go run ./cmd/hme man man
+
+demo: ## record the README demo (needs asciinema and agg)
+	scripts/demo.sh
 
 test: ## run the tests with the race detector
 	go test -race ./...

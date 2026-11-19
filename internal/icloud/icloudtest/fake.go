@@ -12,11 +12,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/dewab74/hide-my-email/internal/srp"
 )
@@ -66,6 +68,11 @@ type Fake struct {
 	FailDeleteOf string
 	// OmitForwardList leaves the inbox list out of the listing.
 	OmitForwardList bool
+	// NewAddress, if set, names each generated address. The default is
+	// fresh-alias-N@icloud.com.
+	NewAddress func() string
+	// Now, if set, timestamps new addresses. The default is a fixed time.
+	Now func() time.Time
 
 	mu           sync.Mutex
 	srp          *srp.Server
@@ -82,14 +89,41 @@ type Fake struct {
 // New starts a fake with a few addresses already on the account.
 func New(t *testing.T) *Fake {
 	t.Helper()
+	f := newFake()
+	f.Server = httptest.NewServer(http.HandlerFunc(f.serve))
+	t.Cleanup(f.Close)
+	return f
+}
+
+// Listen starts a fake on addr (such as "127.0.0.1:8765") that outlives a
+// test, for demonstrations. The caller closes it.
+func Listen(addr string) (*Fake, error) {
+	l, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+	f := newFake()
+	f.Server = httptest.NewUnstartedServer(http.HandlerFunc(f.serve))
+	_ = f.Listener.Close()
+	f.Listener = l
+	f.Start()
+	return f, nil
+}
+
+func newFake() *Fake {
 	f := &Fake{Protocol: "s2k", forwardTo: "tester@icloud.com"}
 	f.aliases = []Alias{
 		{ID: "id-1", Address: "old-shop.0a@icloud.com", Label: "Old shop", Note: "closed", Active: false, ForwardTo: f.forwardTo, Created: 1_700_000_000_000},
 		{ID: "id-2", Address: "news-letter.1b@icloud.com", Label: "Newsletter", Active: true, ForwardTo: f.forwardTo, Created: 1_710_000_000_000},
 	}
-	f.Server = httptest.NewServer(http.HandlerFunc(f.serve))
-	t.Cleanup(f.Close)
 	return f
+}
+
+// SetAliases replaces the addresses on the account.
+func (f *Fake) SetAliases(as []Alias) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.aliases = append([]Alias(nil), as...)
 }
 
 // AuthBase and SetupBase are the endpoints to hand the client.
@@ -364,7 +398,11 @@ func (f *Fake) serveHME(w http.ResponseWriter, op string, str func(string) strin
 		}
 		ok(listing)
 	case "v1/hme/generate":
-		ok(map[string]any{"hme": f.next("fresh-alias") + "@icloud.com"})
+		addr := f.next("fresh-alias") + "@icloud.com"
+		if f.NewAddress != nil {
+			addr = f.NewAddress()
+		}
+		ok(map[string]any{"hme": addr})
 	case "v1/hme/reserve":
 		if str("label") == "" {
 			fail("-41015", "label is required")
@@ -372,6 +410,9 @@ func (f *Fake) serveHME(w http.ResponseWriter, op string, str func(string) strin
 		}
 		a := Alias{ID: f.next("id"), Address: str("hme"), Label: str("label"), Note: str("note"),
 			Active: true, ForwardTo: f.forwardTo, Created: 1_720_000_000_000}
+		if f.Now != nil {
+			a.Created = f.Now().UnixMilli()
+		}
 		f.aliases = append(f.aliases, a)
 		ok(map[string]any{"hme": a})
 	case "v1/hme/updateMetaData", "v1/hme/deactivate", "v1/hme/reactivate", "v1/hme/delete":

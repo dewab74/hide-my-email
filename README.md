@@ -9,11 +9,11 @@ A command-line tool for iCloud+ **Hide My Email**. Create a throwaway address
 in one command, have it land on your clipboard, and list, relabel, pause or
 delete the ones you already have.
 
-```console
-$ hme generate -d "Acme store"
-plover-tidbit.4x@icloud.com
-Copied to the clipboard.
-```
+![hme signing in through 1Password, creating two addresses (one with a 1Password login), listing, copying and deleting](docs/demo.gif)
+
+<sub>Recorded against a simulated iCloud account, so the addresses are
+invented. Play the original with `asciinema play docs/demo.cast`; re-record
+it with `make demo`.</sub>
 
 `hme` is a single static binary for macOS, Linux and Windows. It signs in to
 iCloud itself (Apple ID, password, two-factor code), so it needs no browser,
@@ -404,17 +404,25 @@ Tests never contact Apple. `internal/icloud/icloudtest` is a fake that
 verifies SRP proofs and cookies for real, and the CLI tests drive the whole
 program against it.
 
+`make demo` re-records the demo at the top of this file. It runs the real
+command line against the same fake Apple, on localhost, with scripted
+stand-ins for 1Password, the keyboard, the clipboard and the keychain
+(`internal/demo`), so it needs no account and changes nothing. It needs
+`asciinema` and `agg`.
+
 Layout:
 
 ```text
 cmd/hme/                  entry point
 internal/cli/             commands, prompts, output
 internal/icloud/          sign-in, session handling, Hide My Email API
-internal/icloud/icloudtest/   fake Apple for tests
+internal/icloud/icloudtest/   fake Apple for tests and the demo
+internal/demo/            programs behind the recorded demo
 internal/srp/             SRP-6a as Apple uses it
 internal/store/           encrypted session storage
 Formula/hme.rb            Homebrew formula, regenerated on each release
-scripts/                  release helpers
+scripts/                  release and demo helpers
+docs/                     the demo recording
 ```
 
 ### Releasing

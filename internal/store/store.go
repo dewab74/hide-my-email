@@ -90,6 +90,12 @@ func New(dir string, noKeyring bool) *Store {
 	return &Store{dir: dir, noKeyring: noKeyring, keyUser: keyUserFor(dir)}
 }
 
+// KeyringEntry names the credential-store entry that holds the key for
+// the session in dir.
+func KeyringEntry(dir string) (service, user string) {
+	return keyringService, keyUserFor(dir)
+}
+
 // keyUserFor gives each session directory its own key. The default
 // directory keeps the plain name; any other gets one derived from its
 // path, so signing out of a session kept elsewhere (HME_CONFIG_DIR) does

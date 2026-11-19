@@ -2,33 +2,33 @@
 class Hme < Formula
   desc "Manage iCloud Hide My Email addresses from the command-line"
   homepage "https://github.com/dewab74/hide-my-email"
-  version "0.1.0"
   license "MIT"
 
   on_macos do
     on_arm do
-      url "https://github.com/dewab74/hide-my-email/releases/download/v0.1.0/hme_0.1.0_darwin_arm64.tar.gz"
-      sha256 "006b69819c7aec31640818d2b41b5153a1244c69aad4e59e40e7ed014572768e"
+      url "https://github.com/dewab74/hide-my-email/releases/download/v0.1.1/hme_0.1.1_darwin_arm64.tar.gz"
+      sha256 "e80f1340708fd49c09380d707e3585bf0b2faf9860d5731a0b50277a7ab78363"
     end
     on_intel do
-      url "https://github.com/dewab74/hide-my-email/releases/download/v0.1.0/hme_0.1.0_darwin_amd64.tar.gz"
-      sha256 "77a29d24d863942591d9d64130d82e340c2be0dc8400f4dcadedb21e49e4a8cd"
+      url "https://github.com/dewab74/hide-my-email/releases/download/v0.1.1/hme_0.1.1_darwin_amd64.tar.gz"
+      sha256 "7ed67a8bb0760659f5cfdf5c970b7121310f2e2b54f3e13badf9c6aff24b4327"
     end
   end
 
   on_linux do
     on_arm do
-      url "https://github.com/dewab74/hide-my-email/releases/download/v0.1.0/hme_0.1.0_linux_arm64.tar.gz"
-      sha256 "67a432c6ad1963a36ebe7c04d367846551734f6f4aabfb8138447b82db3770b8"
+      url "https://github.com/dewab74/hide-my-email/releases/download/v0.1.1/hme_0.1.1_linux_arm64.tar.gz"
+      sha256 "ab81bf947940669eaf4b6f90267620788f13ab74f7deb28e1a96b2d6d19d36a0"
     end
     on_intel do
-      url "https://github.com/dewab74/hide-my-email/releases/download/v0.1.0/hme_0.1.0_linux_amd64.tar.gz"
-      sha256 "355a836c7cf912f7d1758ae1d32b1f79e31fef3de95635cce9461decbd236ec5"
+      url "https://github.com/dewab74/hide-my-email/releases/download/v0.1.1/hme_0.1.1_linux_amd64.tar.gz"
+      sha256 "cb63684d009398d4c02d86d9297fb3df267e03896a6522b4a856450f90a80f42"
     end
   end
 
   def install
     bin.install "hme"
+    man1.install Dir["man/*.1"]
     generate_completions_from_executable(bin/"hme", "completion")
   end
 
@@ -38,5 +38,6 @@ class Hme < Formula
     ENV["HME_CONFIG_DIR"] = testpath.to_s
     ENV["HME_NO_KEYRING"] = "1"
     assert_match "not signed in", shell_output("#{bin}/hme status --offline 2>&1", 3)
+    assert_path_exists man1/"hme.1"
   end
 end

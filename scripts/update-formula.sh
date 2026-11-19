@@ -55,6 +55,11 @@ class Hme < Formula
   homepage "https://github.com/${repo}"
   license "MIT"
 
+  livecheck do
+    url :stable
+    strategy :github_latest
+  end
+
   on_macos do
     on_arm do
       url "${base}_darwin_arm64.tar.gz"

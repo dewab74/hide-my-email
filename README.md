@@ -48,24 +48,25 @@ this project may become unnecessary.
 
 ### Homebrew (macOS and Linux)
 
-One line taps this repository and installs `hme`:
+`hme` is in the [dewab-org/custom](https://github.com/dewab-org/homebrew-custom)
+tap. One line taps it and installs `hme`:
 
 ```bash
-brew tap dewab74/hide-my-email https://github.com/dewab74/hide-my-email && { brew trust --formula dewab74/hide-my-email/hme 2>/dev/null || true; } && brew install hme
+brew tap dewab-org/custom && { brew trust --formula dewab-org/custom/hme 2>/dev/null || true; } && brew install dewab-org/custom/hme
 ```
 
 Or step by step:
 
 ```bash
-brew tap dewab74/hide-my-email https://github.com/dewab74/hide-my-email
+brew tap dewab-org/custom
 ```
 
 ```bash
-brew trust --formula dewab74/hide-my-email/hme
+brew trust --formula dewab-org/custom/hme
 ```
 
 ```bash
-brew install hme
+brew install dewab-org/custom/hme
 ```
 
 The `brew trust` step is for Homebrew 7 and newer, which refuses formulae
@@ -81,7 +82,20 @@ brew upgrade hme
 ```
 
 ```bash
-brew uninstall hme && brew untap dewab74/hide-my-email
+brew uninstall hme
+```
+
+Then, if nothing else you use comes from the tap:
+
+```bash
+brew untap dewab-org/custom
+```
+
+If you tapped this repository directly before (`dewab74/hide-my-email`),
+switch over:
+
+```bash
+brew uninstall hme && brew untap dewab74/hide-my-email && brew install dewab-org/custom/hme
 ```
 
 ### Prebuilt binaries
@@ -392,7 +406,7 @@ internal/icloud/          sign-in, session handling, Hide My Email API
 internal/icloud/icloudtest/   fake Apple for tests
 internal/srp/             SRP-6a as Apple uses it
 internal/store/           encrypted session storage
-Formula/hme.rb            Homebrew formula, generated on release
+Formula/hme.rb            Homebrew formula, regenerated on each release
 scripts/                  release helpers
 ```
 
@@ -406,8 +420,21 @@ Pushing a `v*` tag runs the release workflow: it runs the tests, has
 GoReleaser build the six platform binaries and `checksums.txt`, publishes
 them as a GitHub release with a provenance attestation, and then regenerates
 `Formula/hme.rb` from those checksums (`scripts/update-formula.sh`) and
-commits it to `main`, which is what `brew upgrade` picks up. Pre-release tags
-such as `v0.2.0-rc1` are published but leave the formula alone.
+commits it to `main`. Pre-release tags such as `v0.2.0-rc1` are published but
+leave the formula alone.
+
+The formula users install lives in the
+[dewab-org/homebrew-custom](https://github.com/dewab-org/homebrew-custom)
+tap and is not updated by the workflow yet. After a release, pull `main` and
+copy the new formula across, dropping its first line (the "generated, do not
+edit" note, which is only true here):
+
+```bash
+git pull && tail -n +2 Formula/hme.rb > ../homebrew-custom/Formula/hme.rb
+```
+
+Then commit and push it in the tap repository. The tap's pre-commit hook
+runs `brew style` and `brew audit` on it.
 
 ## Acknowledgements
 

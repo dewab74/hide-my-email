@@ -87,11 +87,13 @@ hme generate -d "Acme store" --1password --url https://acme.example [--username 
 - [ ] Clear errors when `op` is missing, not signed in, or the vault is
       unknown; check for it before creating the address
 - [ ] Tests with a fake `op` on `PATH`
-- [ ] Possibly: sign in to iCloud through 1Password automatically, e.g.
-      `hme login --1password [ITEM]`, with `op` supplying the Apple ID and
-      password so nothing is typed. Open questions:
-  - whether to remember the item reference (not a secret) so an expired
-    session can re-login without flags
+- [x] Sign in to iCloud through 1Password: `hme login --1password ITEM
+      [--vault VAULT]`, with `op` supplying the Apple ID and password so
+      nothing is typed. Tested against a fake `op` only
+- [ ] Run `hme login --1password` against the real `op` CLI and Apple
+- [ ] Open questions for 1Password sign-in:
+  - whether to remember the item reference (not a secret), or read it
+    from an environment variable, so a plain `hme login` uses it
   - the two-factor code still comes from an Apple device or SMS and has
     to be typed; 1Password cannot supply it (Apple's code is not a TOTP),
     though the stored trust token usually avoids the prompt

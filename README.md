@@ -146,7 +146,7 @@ Access* on newer systems; it is off when Advanced Data Protection is on).
 | `hme reactivate ADDRESS...` | Turn a deactivated address back on. Alias: `activate`. |
 | `hme delete ADDRESS... [--yes]` | Delete permanently. Asks first unless `--yes`. Alias: `rm`. |
 | `hme forward [EMAIL]` | Show, or change, the inbox addresses forward to. |
-| `hme login [-u APPLE_ID] [--password-stdin]` | Sign in. |
+| `hme login [-u APPLE_ID] [--1password ITEM [--vault VAULT]] [--password-stdin]` | Sign in. |
 | `hme logout` | Delete the stored session and its key from this machine. |
 | `hme status [--offline]` | Who is signed in, and whether the session still works. Alias: `whoami`. |
 | `hme completion bash\|zsh\|fish\|powershell` | Shell completion script; see [Shell completion](#shell-completion). |
@@ -194,29 +194,36 @@ own, so they stay put if Apple renames theirs:
 Exit codes: `0` success, `1` failure, `2` usage error, `3` not signed in or
 the session expired (run `hme login`).
 
-### Signing in non-interactively
+### Signing in from a password manager
 
-The Apple ID and password can come from a password manager instead of the
-keyboard. With the 1Password CLI, for a login item named "Apple ID" in the
-Private vault:
-
-```bash
-op item get "Apple ID" --vault Private --fields username,password --reveal | { IFS=, read -r id pw; printf '%s\n' "$pw" | hme login -u "$id" --password-stdin; }
-```
-
-`op` prints the two fields as `username,password` on one line; the braces
-split that at the first comma, pass the username as `-u` and feed the
-password to `hme` on stdin, so it never appears in a command line or the
-shell history. If your password contains a comma or a double quote, `op`
-wraps it in CSV quoting and the split goes wrong; fetch the two fields
-separately instead:
+With 1Password, name the login item that holds your Apple ID and `hme`
+fetches the username and password itself through the 1Password CLI (`op`),
+which unlocks in its usual way (Touch ID, or your account password):
 
 ```bash
-op read "op://Private/Apple ID/password" | hme login -u "$(op read "op://Private/Apple ID/username")" --password-stdin
+hme login --1password "Apple ID"
 ```
 
-The two-factor code is still asked for on the terminal. After the first
-sign-in Apple trusts the installation, so later logins usually skip the code.
+Add `--vault Private` if the name is not unique across vaults, and
+`-u you@example.com` if the item's username is not your Apple ID. `hme` asks
+`op` for those two fields only and never prints or stores them.
+
+For any other password manager, or if you would rather pipe it yourself,
+set your Apple ID once in your shell profile:
+
+```bash
+export HME_APPLE_ID="you@example.com"
+```
+
+and feed the password on stdin:
+
+```bash
+op read "op://Private/Apple ID/password" | hme login --password-stdin
+```
+
+Either way the password never appears on a command line, and the two-factor
+code is still asked for on the terminal. After the first sign-in Apple
+trusts the installation, so later logins usually skip the code.
 
 ### Shell completion
 
@@ -261,7 +268,8 @@ To try it in the current shell only: `source <(hme completion bash)` (or
 | `HME_CONFIG_DIR` | Where the session file lives. Default: the per-user config directory (`~/Library/Application Support/hme`, `~/.config/hme`, `%AppData%\hme`). |
 | `HME_NO_KEYRING` | If set, never use the system credential store (see below). |
 
-There is deliberately no environment variable for the password.
+There is deliberately no environment variable or flag for the password
+itself; see [Signing in from a password manager](#signing-in-from-a-password-manager).
 
 ### Clipboard
 

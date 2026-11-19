@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -49,6 +50,10 @@ type env struct {
 	prompter  *fakePrompter
 	clipboard string
 	copyErr   error
+	// The fake 1Password CLI: what it prints, and what it was asked.
+	opOut, opStderr string
+	opErr           error
+	opArgs          [][]string
 }
 
 func newEnv(t *testing.T) *env {
@@ -77,6 +82,10 @@ func (e *env) run(stdin string, args ...string) result {
 			}
 			e.clipboard = s
 			return nil
+		},
+		RunOp: func(_ context.Context, args []string) ([]byte, string, error) {
+			e.opArgs = append(e.opArgs, args)
+			return []byte(e.opOut), e.opStderr, e.opErr
 		},
 		ClientOptions: []icloud.Option{icloud.WithTestEndpoints(e.fake.AuthBase(), e.fake.SetupBase())},
 		Version:       "test",
@@ -524,5 +533,100 @@ func TestShellCompletion(t *testing.T) {
 		if out := e.ok("completion", shell).out; len(out) < 500 || !strings.Contains(out, "hme") {
 			t.Errorf("completion %s: implausible script (%d bytes)", shell, len(out))
 		}
+	}
+}
+
+// opItem is what `op item get --fields ... --format json` prints.
+func opItem(username, password string) string {
+	out, _ := json.Marshal([]map[string]string{
+		{"id": "username", "type": "STRING", "purpose": "USERNAME", "label": "username", "value": username},
+		{"id": "password", "type": "CONCEALED", "purpose": "PASSWORD", "label": "password", "value": password},
+	})
+	return string(out)
+}
+
+func TestLoginWith1Password(t *testing.T) {
+	e := newEnv(t)
+	e.opOut = opItem(icloudtest.AppleID, icloudtest.Password)
+	e.prompter.lines = []string{icloudtest.Code}
+
+	r := e.ok("login", "--1password", "Apple ID", "--vault", "Private")
+	if !strings.Contains(r.errOut, "Signed in as "+icloudtest.AppleID) {
+		t.Errorf("stderr = %q", r.errOut)
+	}
+	// Nothing was typed but the verification code.
+	if got := strings.Join(e.prompter.asked, "|"); got != "Verification code: " {
+		t.Errorf("prompts = %q", got)
+	}
+	want := "item get --fields label=username,label=password --reveal --format json --vault Private -- Apple ID"
+	if len(e.opArgs) != 1 || strings.Join(e.opArgs[0], " ") != want {
+		t.Errorf("op was run with %q", e.opArgs)
+	}
+	if strings.Contains(r.out+r.errOut, icloudtest.Password) {
+		t.Error("the password was printed")
+	}
+	e.ok("list")
+
+	// --apple-id overrides the item's username; an item name that looks
+	// like a flag still reaches op as a name, after "--".
+	e.opOut, e.opArgs = opItem("someone-else@example.com", icloudtest.Password), nil
+	e.ok("login", "--1password", "--vault", "-u", icloudtest.AppleID)
+	if got := e.opArgs[0]; got[len(got)-2] != "--" || got[len(got)-1] != "--vault" {
+		t.Errorf("op args = %q", got)
+	}
+
+	// A single field comes back as an object, not an array: no username,
+	// so the Apple ID falls back to the environment.
+	t.Setenv("HME_APPLE_ID", icloudtest.AppleID)
+	e.opOut = `{"id":"password","purpose":"PASSWORD","label":"password","value":"` + icloudtest.Password + `"}`
+	e.ok("login", "--1password", "Apple ID")
+}
+
+func TestLoginWith1PasswordFailures(t *testing.T) {
+	// A fixture standing in for what the vault returns; not a credential.
+	const fromVault = "what the vault returned"
+	cases := []struct {
+		name     string
+		args     []string
+		out, err string
+		runErr   error
+		code     int
+		want     string
+	}{
+		{name: "op refuses", args: []string{"login", "--1password", "Nope"}, runErr: &exec.ExitError{},
+			err:  "\n[ERROR] 2026/11/19 \"Nope\" isn't an item\x1b[2J. Specify the item with its UUID, name, or domain.\nmore\n",
+			code: cli.ExitError, want: `1Password: 2026/11/19 "Nope" isn't an item[2J. Specify`},
+		{name: "op silent failure", args: []string{"login", "--1password", "X"}, runErr: &exec.ExitError{}, out: fromVault,
+			code: cli.ExitError, want: "op exited with an error"},
+		{name: "op missing", args: []string{"login", "--1password", "X"}, runErr: errors.New("the 1Password CLI (op) is not installed"),
+			code: cli.ExitError, want: "not installed"},
+		{name: "garbage output", args: []string{"login", "--1password", "X"}, out: "username," + fromVault,
+			code: cli.ExitError, want: "unexpected output from op"},
+		{name: "no password field", args: []string{"login", "--1password", "X"}, out: opItem(icloudtest.AppleID, ""),
+			code: cli.ExitError, want: `has no password`},
+		{name: "wrong password in item", args: []string{"login", "--1password", "X"}, out: opItem(icloudtest.AppleID, fromVault),
+			code: cli.ExitError, want: "incorrect Apple ID or password"},
+		{name: "with stdin", args: []string{"login", "--1password", "X", "--password-stdin"}, code: cli.ExitUsage, want: "exclude each other"},
+		{name: "vault alone", args: []string{"login", "--vault", "Private"}, code: cli.ExitUsage, want: "--vault only applies"},
+		{name: "empty item", args: []string{"login", "--1password", " "}, code: cli.ExitUsage, want: "needs the name or ID"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.opOut, e.opStderr, e.opErr = tc.out, tc.err, tc.runErr
+			r := e.run("", tc.args...)
+			if r.code != tc.code || !strings.Contains(r.errOut, tc.want) {
+				t.Errorf("exit %d, stderr %q; want exit %d mentioning %q", r.code, r.errOut, tc.code, tc.want)
+			}
+			if strings.Contains(r.out+r.errOut, fromVault) || strings.ContainsRune(r.errOut, 0x1b) {
+				t.Errorf("output leaks the secret or an escape sequence: %q", r.errOut)
+			}
+			if len(e.prompter.asked) != 0 {
+				t.Errorf("prompted for %q after 1Password failed", e.prompter.asked)
+			}
+			if tc.code == cli.ExitUsage && len(e.opArgs) != 0 {
+				t.Error("op was run despite a usage error")
+			}
+		})
 	}
 }

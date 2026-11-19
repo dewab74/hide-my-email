@@ -33,6 +33,8 @@ type Deps struct {
 	Prompter Prompter
 	// Copy puts text on the system clipboard.
 	Copy func(string) error
+	// RunOp runs the 1Password CLI, for `hme login --1password`.
+	RunOp OpRunner
 	// ClientOptions are extra options for the iCloud client.
 	ClientOptions []icloud.Option
 	Version       string

@@ -19,7 +19,7 @@ import (
 var sixDigits = regexp.MustCompile(`^\d{6}$`)
 
 func (a *app) loginCmd() *cobra.Command {
-	var appleID string
+	var appleID, opItem, opVault string
 	var passwordStdin bool
 	cmd := &cobra.Command{
 		Use:   "login",
@@ -32,32 +32,57 @@ is stored is the resulting session, encrypted with a key kept in the
 system credential store.
 
 The Apple ID is taken from --apple-id, then $HME_APPLE_ID, then a
-prompt. The password is prompted for without echo, or read from stdin
-with --password-stdin, for use with a password manager. With the
-1Password CLI, for a login item named "Apple ID" in the Private vault:
+prompt. The password is prompted for without echo.
 
-  op item get "Apple ID" --vault Private --fields username,password --reveal |
-    { IFS=, read -r id pw; printf '%s\n' "$pw" | hme login -u "$id" --password-stdin; }
+With --1password, both come from a login item in 1Password, through the
+1Password CLI (op), which asks you to unlock it in its usual way:
 
-op prints "username,password" on one line; the braces split it at the
-first comma. A password containing a comma or a double quote comes out
-CSV-quoted and breaks that split; fetch the fields separately instead:
+  hme login --1password "Apple ID"
+  hme login --1password "Apple ID" --vault Private
 
-  op read "op://Private/Apple ID/password" |
-    hme login -u "$(op read "op://Private/Apple ID/username")" --password-stdin`,
+The item's username is used as the Apple ID unless --apple-id is given.
+
+With --password-stdin the password is read from stdin, for any other
+password manager or secret store:
+
+  export HME_APPLE_ID=you@example.com
+  op read "op://Private/Apple ID/password" | hme login --password-stdin
+
+Either way, the two-factor code, if Apple asks for one, is still typed
+at the terminal.`,
 		Args:              exactArgs(0),
 		ValidArgsFunction: noComplete,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return a.login(cmd.Context(), appleID, passwordStdin)
+			switch {
+			case opItem != "" && passwordStdin:
+				return usagef("--1password and --password-stdin exclude each other")
+			case opVault != "" && opItem == "":
+				return usagef("--vault only applies with --1password")
+			case cmd.Flags().Changed("1password") && strings.TrimSpace(opItem) == "":
+				return usagef("--1password needs the name or ID of a 1Password item")
+			}
+			return a.login(cmd.Context(), loginOptions{appleID: appleID, passwordStdin: passwordStdin, opItem: opItem, opVault: opVault})
 		},
 	}
 	cmd.Flags().StringVarP(&appleID, "apple-id", "u", "", "Apple ID (email address)")
 	cmd.Flags().BoolVar(&passwordStdin, "password-stdin", false, "read the password from stdin")
-	_ = cmd.RegisterFlagCompletionFunc("apple-id", noComplete)
+	cmd.Flags().StringVar(&opItem, "1password", "", "take the Apple ID and password from this 1Password `item` (name or ID)")
+	cmd.Flags().StringVar(&opVault, "vault", "", "with --1password: the vault to look in")
+	for _, name := range []string{"apple-id", "1password", "vault"} {
+		_ = cmd.RegisterFlagCompletionFunc(name, noComplete)
+	}
 	return cmd
 }
 
-func (a *app) login(ctx context.Context, appleID string, passwordStdin bool) error {
+type loginOptions struct {
+	appleID       string
+	passwordStdin bool
+	opItem        string
+	opVault       string
+}
+
+func (a *app) login(ctx context.Context, o loginOptions) error {
+	appleID := o.appleID
 	st, err := a.store()
 	if err != nil {
 		return err
@@ -65,6 +90,19 @@ func (a *app) login(ctx context.Context, appleID string, passwordStdin bool) err
 	// An unreadable old session is no obstacle to making a new one.
 	prev, _, _ := a.loadSession(st)
 
+	// The 1Password item is consulted first: it can supply the Apple ID
+	// as well, and if it cannot be read there is no point asking for more.
+	var password []byte
+	defer func() { clear(password) }()
+	if o.opItem != "" {
+		var username string
+		if username, password, err = a.opCredentials(ctx, o.opItem, o.opVault); err != nil {
+			return err
+		}
+		if appleID == "" {
+			appleID = username
+		}
+	}
 	if appleID == "" {
 		appleID = os.Getenv("HME_APPLE_ID")
 	}
@@ -78,17 +116,20 @@ func (a *app) login(ctx context.Context, appleID string, passwordStdin bool) err
 		return usagef("%q does not look like an Apple ID (expected an email address)", appleID)
 	}
 
-	var password []byte
-	if passwordStdin {
+	switch {
+	case o.opItem != "":
+		// already read
+	case o.passwordStdin:
 		line, err := bufio.NewReader(io.LimitReader(a.In, 4096)).ReadBytes('\n')
 		if err != nil && !errors.Is(err, io.EOF) {
 			return errors.New("could not read the password from stdin")
 		}
 		password = []byte(strings.TrimRight(string(line), "\r\n"))
-	} else if password, err = a.Prompter.Secret("Password: "); err != nil {
-		return fmt.Errorf("%w (or use --password-stdin)", err)
+	default:
+		if password, err = a.Prompter.Secret("Password: "); err != nil {
+			return fmt.Errorf("%w (or use --1password or --password-stdin)", err)
+		}
 	}
-	defer clear(password)
 	if len(password) == 0 {
 		return usagef("empty password")
 	}

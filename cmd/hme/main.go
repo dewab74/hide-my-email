@@ -33,6 +33,7 @@ func main() {
 		Err:      os.Stderr,
 		Prompter: cli.TerminalPrompter{Err: os.Stderr},
 		Copy:     clipboard.WriteAll,
+		RunOp:    cli.ExecOp,
 		Version:  buildVersion(),
 	})
 	stop()

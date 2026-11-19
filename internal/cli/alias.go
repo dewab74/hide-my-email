@@ -102,7 +102,8 @@ The address alone is written to stdout, so it can be captured:
   addr=$(hme generate -d "Newsletter" --no-copy)`,
 		Example: `  hme generate -d "Acme store"
   hme generate -d "Acme store" -n "ordered a kettle" --json`,
-		Args: exactArgs(0),
+		Args:              exactArgs(0),
+		ValidArgsFunction: noComplete,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			label = strings.TrimSpace(label)
 			if label == "" && !a.json && a.Prompter.Interactive() {
@@ -150,7 +151,8 @@ func (a *app) listCmd() *cobra.Command {
 		Example: `  hme list --active
   hme list --search shop --json
   hme list --inactive --quiet | xargs hme delete --yes`,
-		Args: exactArgs(0),
+		Args:              exactArgs(0),
+		ValidArgsFunction: noComplete,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			switch {
 			case active && inactive:
@@ -207,6 +209,8 @@ func (a *app) listCmd() *cobra.Command {
 	f.StringVar(&sortBy, "sort", "created", "sort by created, label or address")
 	f.BoolVar(&table, "table", false, "print a table (the default)")
 	f.BoolVarP(&quiet, "quiet", "q", false, "print only the addresses, one per line")
+	_ = cmd.RegisterFlagCompletionFunc("sort", fixedChoices("created\tnewest first", "label", "address"))
+	_ = cmd.RegisterFlagCompletionFunc("search", noComplete)
 	return cmd
 }
 
@@ -234,9 +238,10 @@ func (a *app) printDetail(al icloud.Alias) {
 
 func (a *app) showCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "show ADDRESS",
-		Short: "Show one address in full",
-		Args:  exactArgs(1),
+		Use:               "show ADDRESS",
+		Short:             "Show one address in full",
+		Args:              exactArgs(1),
+		ValidArgsFunction: a.completeAddresses(1, nil),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return a.withClient(cmd.Context(), func(c *icloud.Client) error {
 				l, err := c.List(cmd.Context())
@@ -264,7 +269,8 @@ func (a *app) copyCmd() *cobra.Command {
 		Long: `Copy the one active address whose address or label contains TEXT.
 
   hme copy acme`,
-		Args: exactArgs(1),
+		Args:              exactArgs(1),
+		ValidArgsFunction: a.completeAddresses(1, isActive),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return a.withClient(cmd.Context(), func(c *icloud.Client) error {
 				l, err := c.List(cmd.Context())
@@ -315,7 +321,8 @@ func (a *app) updateCmd() *cobra.Command {
 		Short:   "Change an address's description or note",
 		Example: `  hme update abc-def.0x@icloud.com -d "Acme (old account)"
   hme update abc-def.0x@icloud.com -n ""     # clear the note`,
-		Args: exactArgs(1),
+		Args:              exactArgs(1),
+		ValidArgsFunction: a.completeAddresses(1, nil),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			setLabel, setNote := cmd.Flags().Changed("description"), cmd.Flags().Changed("note")
 			if !setLabel && !setNote {
@@ -396,9 +403,10 @@ func (a *app) each(ctx context.Context, args []string, done string,
 
 func (a *app) deactivateCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "deactivate ADDRESS...",
-		Short: "Stop addresses from forwarding mail (reversible)",
-		Args:  minArgs(1, "at least one address"),
+		Use:               "deactivate ADDRESS...",
+		Short:             "Stop addresses from forwarding mail (reversible)",
+		Args:              minArgs(1, "at least one address"),
+		ValidArgsFunction: a.completeAddresses(0, isActive),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return a.each(cmd.Context(), args, "Deactivated", nil, func(c *icloud.Client, al *icloud.Alias) error {
 				if !al.Active {
@@ -413,10 +421,11 @@ func (a *app) deactivateCmd() *cobra.Command {
 
 func (a *app) reactivateCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:     "reactivate ADDRESS...",
-		Aliases: []string{"activate"},
-		Short:   "Turn deactivated addresses back on",
-		Args:    minArgs(1, "at least one address"),
+		Use:               "reactivate ADDRESS...",
+		Aliases:           []string{"activate"},
+		Short:             "Turn deactivated addresses back on",
+		Args:              minArgs(1, "at least one address"),
+		ValidArgsFunction: a.completeAddresses(0, isInactive),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return a.each(cmd.Context(), args, "Reactivated", nil, func(c *icloud.Client, al *icloud.Alias) error {
 				if al.Active {
@@ -440,7 +449,8 @@ and the address cannot be recovered. To pause one instead, use
 'hme deactivate'.
 
 Asks for confirmation unless --yes is given.`,
-		Args: minArgs(1, "at least one address"),
+		Args:              minArgs(1, "at least one address"),
+		ValidArgsFunction: a.completeAddresses(0, nil),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			confirm := func(targets []icloud.Alias) error {
 				if yes {
@@ -484,6 +494,7 @@ func (a *app) forwardCmd() *cobra.Command {
 		Long: `Without an argument, show where Hide My Email forwards mail and which
 inboxes can be chosen. With EMAIL, forward to that inbox instead; it
 must be one of the listed choices.`,
+		ValidArgsFunction: a.completeInboxes,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 1 {
 				return usagef("'%s' takes at most one argument", cmd.CommandPath())

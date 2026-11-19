@@ -23,10 +23,12 @@ no cookie export and no other runtime.
 > entirely by Claude (Anthropic's AI model, via Claude Code) under my
 > direction, including the sign-in and cryptography code. It has an
 > extensive test suite that runs against a protocol-faithful fake of Apple's
-> services, but it has had no independent security review, Apple publishes
-> no API for Hide My Email, and this release has not yet been exercised
-> against the live service. Read the code before you trust it with your
-> Apple Account, and expect to report a bug or two. See [TODO.md](TODO.md).
+> services, and sign-in and every command have been checked once against a
+> real account on macOS, but it has had no independent security review, it
+> is untested on Linux and Windows beyond its test suite, and Apple
+> publishes no API for Hide My Email. Read the code before you trust it with
+> your Apple Account, and expect to report a bug or two. See
+> [TODO.md](TODO.md) for what has and has not been verified.
 
 ## Why this exists
 
@@ -147,7 +149,7 @@ Access* on newer systems; it is off when Advanced Data Protection is on).
 | `hme login [-u APPLE_ID] [--password-stdin]` | Sign in. |
 | `hme logout` | Delete the stored session and its key from this machine. |
 | `hme status [--offline]` | Who is signed in, and whether the session still works. Alias: `whoami`. |
-| `hme completion bash\|zsh\|fish\|powershell` | Shell completion script. |
+| `hme completion bash\|zsh\|fish\|powershell` | Shell completion script; see [Shell completion](#shell-completion). |
 
 Each command also has a manual page: `man hme`, `man hme-generate`, and so
 on. Homebrew installs them; otherwise `hme man DIR` writes them into `DIR`:
@@ -202,6 +204,41 @@ op read "op://Private/Apple/password" | hme login -u you@example.com --password-
 
 The two-factor code is still asked for on the terminal. After the first
 sign-in Apple trusts the installation, so later logins usually skip the code.
+
+### Shell completion
+
+Tab completion covers commands, flags and flag values, and also your own
+data: `hme show <Tab>`, `delete`, `update`, `deactivate`, `reactivate` and
+`copy` offer the addresses on the account with their labels (only active
+ones where only those make sense, and so on), and `hme forward <Tab>` offers
+your inboxes. Those lookups ask iCloud, so they need you to be signed in and
+take a moment; when signed out or offline they simply offer nothing.
+
+Homebrew sets completion up for bash, zsh and fish. Otherwise, once per
+machine:
+
+```bash
+# bash (needs the bash-completion package)
+hme completion bash > ~/.local/share/bash-completion/completions/hme
+```
+
+```bash
+# zsh: any directory on your $fpath, then restart the shell
+hme completion zsh > "${fpath[1]}/_hme"
+```
+
+```bash
+# fish
+hme completion fish > ~/.config/fish/completions/hme.fish
+```
+
+```powershell
+# PowerShell: add this line to your $PROFILE
+hme completion powershell | Out-String | Invoke-Expression
+```
+
+To try it in the current shell only: `source <(hme completion bash)` (or
+`zsh`), or `hme completion fish | source`.
 
 ### Environment
 

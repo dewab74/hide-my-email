@@ -463,3 +463,66 @@ func TestManPages(t *testing.T) {
 		t.Errorf("man without a directory: exit %d", r.code)
 	}
 }
+
+// complete asks hme what the shell would offer after the given words.
+func (e *env) complete(words ...string) (choices []string, directive string) {
+	e.t.Helper()
+	r := e.ok(append([]string{"__complete"}, words...)...)
+	lines := strings.Split(strings.TrimSpace(r.out), "\n")
+	return lines[:len(lines)-1], lines[len(lines)-1]
+}
+
+func TestShellCompletion(t *testing.T) {
+	e := newEnv(t)
+	const noFiles = ":4" // cobra.ShellCompDirectiveNoFileComp
+
+	// Signed out: silent, no suggestions, and no file names either.
+	if got, dir := e.complete("show", ""); len(got) != 0 || dir != noFiles {
+		t.Errorf("signed out: %q %s", got, dir)
+	}
+	if r := e.run("", "__complete", "delete", ""); r.code != 0 || strings.Contains(r.errOut, "hme login") {
+		t.Errorf("completion complained when signed out: %d %q", r.code, r.errOut)
+	}
+
+	e.login()
+	active, inactive := "news-letter.1b@icloud.com\tNewsletter", "old-shop.0a@icloud.com\tOld shop (inactive)"
+	for _, tc := range []struct {
+		words []string
+		want  []string
+	}{
+		{[]string{"show", ""}, []string{inactive, active}},
+		{[]string{"delete", ""}, []string{inactive, active}},
+		{[]string{"update", ""}, []string{inactive, active}},
+		{[]string{"deactivate", ""}, []string{active}},
+		{[]string{"copy", ""}, []string{active}},
+		{[]string{"reactivate", ""}, []string{inactive}},
+		{[]string{"delete", "old-shop.0a@icloud.com", ""}, []string{active}}, // not offered twice
+		{[]string{"show", "old-shop.0a@icloud.com", ""}, nil},                // takes one address
+		{[]string{"forward", ""}, []string{"tester@icloud.com\tcurrent", "tester@example.com"}},
+		{[]string{"forward", "tester@icloud.com", ""}, nil},
+		{[]string{"list", "--sort", ""}, []string{"created\tnewest first", "label", "address"}},
+		{[]string{"generate", ""}, nil},
+		{[]string{"list", ""}, nil},
+	} {
+		got, dir := e.complete(tc.words...)
+		if strings.Join(got, "|") != strings.Join(tc.want, "|") || dir != noFiles {
+			t.Errorf("complete %q = %q %s, want %q %s", tc.words, got, dir, tc.want, noFiles)
+		}
+	}
+	if got, _ := e.complete("de"); strings.Join(got, "|") != "deactivate\tStop addresses from forwarding mail (reversible)|delete\tPermanently delete addresses" {
+		t.Errorf("command completion = %q", got)
+	}
+
+	// A label cannot smuggle extra suggestions or control characters in.
+	e.ok("generate", "-d", "evil\nextra-suggestion\x1b[2J", "--no-copy")
+	got, _ := e.complete("deactivate", "")
+	if len(got) != 2 || strings.ContainsAny(strings.Join(got, ""), "\x1b") {
+		t.Errorf("hostile label leaked into completion: %q", got)
+	}
+
+	for _, shell := range []string{"bash", "zsh", "fish", "powershell"} {
+		if out := e.ok("completion", shell).out; len(out) < 500 || !strings.Contains(out, "hme") {
+			t.Errorf("completion %s: implausible script (%d bytes)", shell, len(out))
+		}
+	}
+}

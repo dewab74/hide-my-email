@@ -99,6 +99,7 @@ creates an address and puts it on the clipboard.`,
 	pf.BoolVar(&a.json, "json", false, "write machine-readable JSON to stdout")
 	pf.BoolVar(&a.debug, "debug", false, "trace requests to stderr (never headers or bodies)")
 	pf.DurationVar(&a.timeout, "timeout", 30*time.Second, "per-request timeout")
+	_ = root.RegisterFlagCompletionFunc("timeout", fixedChoices("10s", "30s", "1m"))
 
 	root.AddGroup(
 		&cobra.Group{ID: "alias", Title: "Addresses:"},
@@ -116,10 +117,11 @@ creates an address and puts it on the clipboard.`,
 		root.AddCommand(c)
 	}
 	root.AddCommand(&cobra.Command{
-		Use:   "version",
-		Short: "Print the version",
-		Args:  exactArgs(0),
-		Run:   func(*cobra.Command, []string) { fmt.Fprintf(a.Out, "hme %s\n", a.Version) },
+		Use:               "version",
+		Short:             "Print the version",
+		Args:              exactArgs(0),
+		ValidArgsFunction: noComplete,
+		Run:               func(*cobra.Command, []string) { fmt.Fprintf(a.Out, "hme %s\n", a.Version) },
 	})
 	root.AddCommand(a.manCmd())
 	return root

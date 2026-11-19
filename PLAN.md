@@ -163,7 +163,8 @@ first milestone below.
    workflow.
 2. **0.2, live verification:** sign in and run each verb against real
    accounts (device 2FA, SMS 2FA, a repeat login with a trust token) on all
-   three operating systems; fix what differs.
+   three operating systems; fix what differs. Done once on macOS with no
+   defects found; Linux, Windows and the cases listed in TODO.md remain.
 3. **0.3, reach:** hardware security key sign-in, China-region accounts,
    Scoop/winget packaging, signed and notarized macOS binaries.
 4. **0.4, 1Password:** given a URL and a description (and optionally a

@@ -36,13 +36,15 @@ prompt. The password is prompted for without echo, or read from stdin
 with --password-stdin, for use with a password manager:
 
   op read "op://Private/Apple/password" | hme login --password-stdin`,
-		Args: exactArgs(0),
+		Args:              exactArgs(0),
+		ValidArgsFunction: noComplete,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return a.login(cmd.Context(), appleID, passwordStdin)
 		},
 	}
 	cmd.Flags().StringVarP(&appleID, "apple-id", "u", "", "Apple ID (email address)")
 	cmd.Flags().BoolVar(&passwordStdin, "password-stdin", false, "read the password from stdin")
+	_ = cmd.RegisterFlagCompletionFunc("apple-id", noComplete)
 	return cmd
 }
 
@@ -135,7 +137,8 @@ func (a *app) logoutCmd() *cobra.Command {
 
 This does not end the session on Apple's side. To do that, sign out of
 all browsers under Account Settings on icloud.com.`,
-		Args: exactArgs(0),
+		Args:              exactArgs(0),
+		ValidArgsFunction: noComplete,
 		RunE: func(*cobra.Command, []string) error {
 			st, err := a.store()
 			if err != nil {
@@ -162,7 +165,8 @@ func (a *app) statusCmd() *cobra.Command {
 		Long: `Show the signed-in account and how the session is stored, and check
 with Apple that the session still works (skip the check with --offline).
 Exits with status 3 when not signed in.`,
-		Args: exactArgs(0),
+		Args:              exactArgs(0),
+		ValidArgsFunction: noComplete,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			st, err := a.store()
 			if err != nil {

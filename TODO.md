@@ -2,26 +2,47 @@
 
 Milestones and reasoning are in [PLAN.md](PLAN.md).
 
-## Before the first release (0.2)
+## Live verification (0.2)
 
 Nothing here can be automated: each item needs a real Apple Account.
 
-- [ ] `hme login` against live Apple with trusted-device 2FA
-- [ ] `hme login` on an SMS-only account
+Verified on 2026-11-18 with hme 0.1.0 on macOS (arm64), against a real
+iCloud+ account, using one throwaway address that was deleted afterwards:
+
+- [x] `hme login` against live Apple (SRP sign-in and second factor)
+- [x] `status`, `status --offline`
+- [x] `list` with `--active`, `--inactive`, `--search`, `--sort`, `--quiet`,
+      `--json` and the table
+- [x] `generate` (two-step create, label and note, clipboard copy)
+- [x] `show`, `copy`
+- [x] `update` of the label and the note, and clearing the note with `-n ""`
+- [x] `deactivate`, `reactivate`
+- [x] `delete` of an active address (deactivates first), its refusal
+      without `--yes` when there is no terminal, and unknown addresses
+- [x] `forward` without an argument
+- [x] Session stored encrypted with the key in the macOS Keychain; file
+      `0600`, directory `0700`
+- [x] `--debug` trace on a live request shows no query string or identifier
+- [x] Homebrew install, formula test, and the release workflow end to end
+
+Still to verify:
+
+- [ ] `hme forward EMAIL` (changing the inbox). Not run on purpose: it
+      changes forwarding for every address on the account
+- [ ] `hme login` on an SMS-only account, and which second-factor path the
+      login above took
 - [ ] Second `hme login` reuses the trust token and skips the code
-- [ ] `generate`, `list`, `show`, `copy`, `update`, `deactivate`,
-      `reactivate`, `delete`, `forward` against the live service
-- [ ] Confirm Apple accepts an empty `note` on `reserve` and `updateMetaData`
+- [ ] `generate` with no note (an empty `note` on `reserve`)
 - [ ] Confirm which status codes the setup and mail-domain services return
       for expired cookies (401, 421 and 450 are all treated as "refresh")
 - [ ] Leave a session idle for a few weeks and confirm it recovers or asks
       for `hme login` cleanly
 - [ ] Verify the `s2k_fo` password protocol on a legacy account (the
       reference implementations disagree on hex case; see PLAN.md)
-- [ ] Session storage on each OS: macOS Keychain, Windows Credential
-      Manager, GNOME Keyring/KWallet, and the no-keyring fallback
+- [ ] Session storage on Windows Credential Manager, GNOME Keyring/KWallet,
+      and the no-keyring fallback
 - [ ] Clipboard on Wayland, X11, Windows Terminal and over SSH
-- [x] Tag `v0.1.0` and check the release workflow end to end
+- [ ] Everything above on Linux and Windows
 
 ## Next (0.3)
 
@@ -83,7 +104,9 @@ hme generate -d "Acme store" --1password --url https://acme.example [--username 
 - [ ] File lock so two concurrent `hme` runs cannot interleave session writes
 - [ ] `hme list --since/--before`, and `--output csv`
 - [ ] `hme delete -` and friends reading addresses from stdin
-- [ ] Shell completion of addresses from a short-lived local cache
+- [x] Shell completion of addresses, inboxes and flag values
+- [ ] Cache the address list briefly so repeated Tab presses do not each
+      ask iCloud
 - [x] Man pages generated from the command tree
 - [ ] `hme logout --everywhere` if Apple exposes a way to end the web session
 

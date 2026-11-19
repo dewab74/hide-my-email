@@ -1,0 +1,53 @@
+name: Retry stalled CI
+
+# GitHub sometimes has no hosted runner to give a job (macOS most often).
+# After about 15 minutes it cancels the job, which fails the whole CI run
+# although nothing was tested. This re-runs such a run's failed jobs, at
+# most twice, and only when every failure is a job that never got a runner;
+# a real test failure is left alone.
+#
+# workflow_run runs with this repository's token, so this job checks
+# nothing out and runs no code from the run it inspects: it only reads job
+# metadata and asks GitHub to re-run.
+
+on:
+  workflow_run: # zizmor: ignore[dangerous-triggers] -- no checkout, reads API metadata only
+    workflows: [CI]
+    types: [completed]
+
+permissions: {}
+
+# One decision per CI run attempt.
+concurrency:
+  group: retry-stalled-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  retry:
+    name: re-run jobs that never started
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.run_attempt < 3
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write # re-run the failed jobs
+    steps:
+      - name: Re-run if the only failures are jobs that never got a runner
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: |
+          jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/attempts/$ATTEMPT/jobs?per_page=100")"
+          # A job that never got a runner is cancelled with no runner name
+          # and no steps. Anything else that did not succeed is a real result.
+          stalled="$(jq '[.jobs[] | select(.conclusion == "cancelled" and (.runner_name // "") == "" and (.steps | length) == 0)] | length' <<<"$jobs")"
+          real="$(jq '[.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out" or (.conclusion == "cancelled" and ((.runner_name // "") != "" or (.steps | length) > 0)))] | length' <<<"$jobs")"
+          jq -r '.jobs[] | "  \(.name): \(.conclusion) runner=\(.runner_name // "none") steps=\(.steps | length)"' <<<"$jobs"
+          if [ "$stalled" -eq 0 ] || [ "$real" -ne 0 ]; then
+            echo "Not re-running: $stalled job(s) never started, $real real failure(s)."
+            exit 0
+          fi
+          echo "::notice::$stalled job(s) never got a runner; re-running attempt $ATTEMPT's failed jobs"
+          gh run rerun "$RUN_ID" --failed --repo "$GITHUB_REPOSITORY"

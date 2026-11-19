@@ -16,6 +16,11 @@ jobs:
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # The tests take about a minute. A job still running after 15 has hung;
+    # stop it rather than hold a runner for GitHub's 6-hour default. (This
+    # counts from when a runner picks the job up; waiting for one is handled
+    # by retry-stalled.yml.)
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:

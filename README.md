@@ -395,6 +395,11 @@ hooks only as a backstop for commits made with `--no-verify`. GitHub's secret
 scanning push protection is on as well, and refuses a push containing a
 recognised credential; it is a second net, not a replacement.
 
+CI runs the tests on Linux, macOS and Windows. If GitHub has no runner to
+give a job (it happens with macOS), the run is retried automatically, up to
+twice, by `.github/workflows/retry-stalled.yml`; a real test failure is
+never retried.
+
 Tests never contact Apple. `internal/icloud/icloudtest` is a fake that
 verifies SRP proofs and cookies for real, and the CLI tests drive the whole
 program against it.

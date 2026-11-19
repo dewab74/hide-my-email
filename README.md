@@ -425,16 +425,17 @@ leave the formula alone.
 
 The formula users install lives in the
 [dewab-org/homebrew-custom](https://github.com/dewab-org/homebrew-custom)
-tap and is not updated by the workflow yet. After a release, pull `main` and
-copy the new formula across, dropping its first line (the "generated, do not
-edit" note, which is only true here):
+tap, and the same run updates it there too: the generated formula, minus
+its "generated, do not edit" first line, is pushed to the tap's `master`.
+That push uses a deploy key with write access to the tap repository only,
+held as the `TAP_DEPLOY_KEY` secret of a `homebrew-tap` environment that
+only `v*` tags may use. Revoke it under the tap's Settings, Deploy keys. If
+the secret is missing, the release still succeeds and the run shows a
+warning; the formula can then be copied across by hand:
 
 ```bash
 git pull && tail -n +2 Formula/hme.rb > ../homebrew-custom/Formula/hme.rb
 ```
-
-Then commit and push it in the tap repository. The tap's pre-commit hook
-runs `brew style` and `brew audit` on it.
 
 ## Acknowledgements
 

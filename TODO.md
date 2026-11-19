@@ -89,9 +89,10 @@ Still to do:
 - [ ] Still unchecked against the real `op`: the item's `email` field when
       `--username` is given, and `hme login --1password` since its
       arguments changed to the `--flag=value` form (0.1.3)
-- [ ] Have the release workflow also update `Formula/hme.rb` in the
-      dewab-org/homebrew-custom tap (needs a token with write access to
-      that repository); until then it is updated by hand
+- [x] The release workflow also updates `Formula/hme.rb` in the
+      dewab-org/homebrew-custom tap, with a write deploy key scoped to
+      that repository and to a tag-only environment
+- [ ] Watch the first release that exercises the tap job
 - [ ] `--tags`, and a password recipe for sites with awkward rules
 - [ ] Decided against for now: writing the item reference into the
       address's note. The label and the item title already match, and it

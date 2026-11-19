@@ -144,7 +144,7 @@ save the session if anything in it changed.
 | Accidental deletion | Exact match, preview, confirmation. Deleting an active address deactivates it first; if the delete then fails, the error says it was left deactivated, and a batch reports what was already done. |
 | Argument injection into `op` | Run with an argument list and no shell or stdin; values attached to flags with `=`; names and assignments after `--`. |
 | Secrets committed to the repo | gitleaks and detect-secrets hooks at commit time, CI backstop, ignore rules. |
-| Supply chain | Five direct dependencies, `go.sum`, Dependabot, govulncheck in CI, actions pinned by commit SHA and tools by version. The release runs as three jobs: tests with a read-only token, the build with release and attestation rights and no build cache, and a formula job that alone may push to `main`. A tag must be on `main` to release, and the Homebrew formula never moves to an older version. Pre-commit hooks are pinned by tag, not SHA. |
+| Supply chain | Five direct dependencies, `go.sum`, Dependabot, govulncheck in CI, actions pinned by commit SHA and tools by version. The release runs as three jobs: tests with a read-only token, the build with release and attestation rights and no build cache, a formula job that alone may push to `main`, and a tap job that alone holds the deploy key for the dewab-org/homebrew-custom tap (an environment secret only `v*` tags can reach, on a key that can write to that one repository). A tag must be on `main` to release, and the Homebrew formula never moves to an older version. Pre-commit hooks are pinned by tag, not SHA. |
 
 Reviewed on 2026-11-19 by two independent passes (security and
 correctness) and scanned with grype, trivy, govulncheck, gosec, gitleaks,

@@ -391,7 +391,9 @@ make build
 detect-secrets) run on your machine before a commit is created, because a
 secret that reaches the remote is already leaked. Git hooks live in `.git/`
 and are not cloned, so without this step nothing is checked. CI runs the same
-hooks only as a backstop for commits made with `--no-verify`.
+hooks only as a backstop for commits made with `--no-verify`. GitHub's secret
+scanning push protection is on as well, and refuses a push containing a
+recognised credential; it is a second net, not a replacement.
 
 Tests never contact Apple. `internal/icloud/icloudtest` is a fake that
 verifies SRP proofs and cookies for real, and the CLI tests drive the whole

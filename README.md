@@ -423,6 +423,11 @@ them as a GitHub release with a provenance attestation, and then regenerates
 commits it to `main`. Pre-release tags such as `v0.2.0-rc1` are published but
 leave the formula alone.
 
+Release tags are protected by repository rulesets: only admins can push a
+`v*` tag, and once pushed it can be neither moved nor deleted, so check the
+commit before tagging. A mistaken release is fixed with a new, higher
+version. `main` likewise cannot be force-pushed or deleted.
+
 The formula users install lives in the
 [dewab-org/homebrew-custom](https://github.com/dewab-org/homebrew-custom)
 tap, and the same run updates it there too: the generated formula, minus

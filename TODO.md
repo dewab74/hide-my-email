@@ -170,8 +170,10 @@ Accepted for now, with the reason:
       last-writer-wins on the session file; it self-heals on the next
       call. Needs the file lock listed under Later
 - [ ] Pre-commit hook revisions are tags, not commit SHAs
-- [ ] `main` is not a protected branch, and there is no tag protection
-      rule; both are repository settings
+- [x] Repository rulesets (2026-11-19): `main` cannot be deleted or
+      force-pushed; `v*` tags cannot be moved or deleted by anyone, and
+      only admins can create them. Pull requests are deliberately not
+      required: the release workflow pushes the formula to `main` itself
 
 ## Known limitations
 

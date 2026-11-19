@@ -50,8 +50,16 @@ brew tap dewab74/hide-my-email https://github.com/dewab74/hide-my-email
 ```
 
 ```bash
+brew trust --formula dewab74/hide-my-email/hme
+```
+
+```bash
 brew install hme
 ```
+
+The `brew trust` step is for Homebrew 7 and newer, which refuses formulae
+from third-party taps until you say you trust them; older versions do not
+have the command, so skip it there.
 
 This installs the prebuilt binary for your platform, verified against its
 published SHA-256, along with shell completions for bash, zsh and fish.

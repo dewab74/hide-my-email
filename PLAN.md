@@ -164,5 +164,9 @@ first milestone below.
    three operating systems; fix what differs; tag the first release.
 3. **0.3, reach:** hardware security key sign-in, China-region accounts,
    Homebrew/Scoop/winget packaging, signed and notarized macOS binaries.
-4. **Later:** a file lock for concurrent runs, `list` filters by date,
+4. **0.4, 1Password:** given a URL and a description (and optionally a
+   username), create the address and a 1Password login for that site in one
+   step, with the password generated and held by 1Password via the `op`
+   CLI so `hme` never handles it. Tasks and open questions are in TODO.md.
+5. **Later:** a file lock for concurrent runs, `list` filters by date,
    bulk operations from stdin, address completion in shells.

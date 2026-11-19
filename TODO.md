@@ -35,6 +35,46 @@ Nothing here can be automated: each item needs a real Apple Account.
 - [ ] `hme login` should offer a choice when several trusted phone numbers
       exist
 
+## 1Password integration (0.4)
+
+Goal: one command that creates a Hide My Email address for a site and a
+1Password login for it, with a generated password.
+
+```text
+hme generate -d "Acme store" --1password --url https://acme.example [--username NAME] [--vault VAULT]
+```
+
+- [ ] Decide the command shape: a `--1password` flag on `generate` (above)
+      or a separate verb such as `hme signup URL -d DESC`
+- [ ] Create the item through the `op` CLI (`op item create --category
+      login --title DESC --url URL --generate-password username=...`), so
+      1Password generates and stores the password and `hme` never sees it
+- [ ] Username defaults to the new address; `--username` overrides it, and
+      the address is then stored as the item's email field
+- [ ] Record the address in the item and the item reference in the alias
+      note, so each can be found from the other
+- [ ] `--vault`, and optionally `--tags` and a password recipe
+- [ ] Run `op` with an argument list, never through a shell; validate the
+      URL (http/https only); keep the password out of stdout, stderr,
+      `--json` and the clipboard unless explicitly asked for
+- [ ] Decide what happens if `op` fails after the address exists: keep the
+      address and say so, or deactivate it (leaning: keep, and print the
+      exact `op` command to retry)
+- [ ] Clear errors when `op` is missing, not signed in, or the vault is
+      unknown; check for it before creating the address
+- [ ] Tests with a fake `op` on `PATH`
+- [ ] Possibly: sign in to iCloud through 1Password automatically, e.g.
+      `hme login --1password [ITEM]`, with `op` supplying the Apple ID and
+      password so nothing is typed. Open questions:
+  - whether to remember the item reference (not a secret) so an expired
+    session can re-login without flags
+  - the two-factor code still comes from an Apple device or SMS and has
+    to be typed; 1Password cannot supply it (Apple's code is not a TOTP),
+    though the stored trust token usually avoids the prompt
+  - never re-login silently in the background: a failed attempt counts
+    toward Apple's lockout, so it stays an explicit command
+- [ ] Later: other managers (Bitwarden) behind the same interface
+
 ## Later
 
 - [ ] File lock so two concurrent `hme` runs cannot interleave session writes

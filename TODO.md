@@ -92,7 +92,8 @@ Still to do:
 - [x] The release workflow also updates `Formula/hme.rb` in the
       dewab-org/homebrew-custom tap, with a write deploy key scoped to
       that repository and to a tag-only environment
-- [ ] Watch the first release that exercises the tap job
+- [x] First release through the tap job (v0.1.4): formula pushed to the
+      tap by the workflow and installed from it with `brew upgrade`
 - [ ] `--tags`, and a password recipe for sites with awkward rules
 - [ ] Decided against for now: writing the item reference into the
       address's note. The label and the item title already match, and it

@@ -33,9 +33,18 @@ system credential store.
 
 The Apple ID is taken from --apple-id, then $HME_APPLE_ID, then a
 prompt. The password is prompted for without echo, or read from stdin
-with --password-stdin, for use with a password manager:
+with --password-stdin, for use with a password manager. With the
+1Password CLI, for a login item named "Apple ID" in the Private vault:
 
-  op read "op://Private/Apple/password" | hme login --password-stdin`,
+  op item get "Apple ID" --vault Private --fields username,password --reveal |
+    { IFS=, read -r id pw; printf '%s\n' "$pw" | hme login -u "$id" --password-stdin; }
+
+op prints "username,password" on one line; the braces split it at the
+first comma. A password containing a comma or a double quote comes out
+CSV-quoted and breaks that split; fetch the fields separately instead:
+
+  op read "op://Private/Apple ID/password" |
+    hme login -u "$(op read "op://Private/Apple ID/username")" --password-stdin`,
 		Args:              exactArgs(0),
 		ValidArgsFunction: noComplete,
 		RunE: func(cmd *cobra.Command, _ []string) error {

@@ -196,10 +196,23 @@ the session expired (run `hme login`).
 
 ### Signing in non-interactively
 
-The password can come from a password manager instead of the keyboard:
+The Apple ID and password can come from a password manager instead of the
+keyboard. With the 1Password CLI, for a login item named "Apple ID" in the
+Private vault:
 
 ```bash
-op read "op://Private/Apple/password" | hme login -u you@example.com --password-stdin
+op item get "Apple ID" --vault Private --fields username,password --reveal | { IFS=, read -r id pw; printf '%s\n' "$pw" | hme login -u "$id" --password-stdin; }
+```
+
+`op` prints the two fields as `username,password` on one line; the braces
+split that at the first comma, pass the username as `-u` and feed the
+password to `hme` on stdin, so it never appears in a command line or the
+shell history. If your password contains a comma or a double quote, `op`
+wraps it in CSV quoting and the split goes wrong; fetch the two fields
+separately instead:
+
+```bash
+op read "op://Private/Apple ID/password" | hme login -u "$(op read "op://Private/Apple ID/username")" --password-stdin
 ```
 
 The two-factor code is still asked for on the terminal. After the first

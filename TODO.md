@@ -84,7 +84,7 @@ hme generate -d "Acme store" --1password --url https://acme.example [--username 
 - [ ] `hme list --since/--before`, and `--output csv`
 - [ ] `hme delete -` and friends reading addresses from stdin
 - [ ] Shell completion of addresses from a short-lived local cache
-- [ ] Man page generated from the command tree
+- [x] Man pages generated from the command tree
 - [ ] `hme logout --everywhere` if Apple exposes a way to end the web session
 
 ## Ideas

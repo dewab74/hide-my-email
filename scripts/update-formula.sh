@@ -53,7 +53,6 @@ cat <<EOF_FORMULA
 class Hme < Formula
   desc "Manage iCloud Hide My Email addresses from the command-line"
   homepage "https://github.com/${repo}"
-  version "${version}"
   license "MIT"
 
   on_macos do
@@ -80,6 +79,7 @@ class Hme < Formula
 
   def install
     bin.install "hme"
+    man1.install Dir["man/*.1"]
     generate_completions_from_executable(bin/"hme", "completion")
   end
 
@@ -89,6 +89,7 @@ class Hme < Formula
     ENV["HME_CONFIG_DIR"] = testpath.to_s
     ENV["HME_NO_KEYRING"] = "1"
     assert_match "not signed in", shell_output("#{bin}/hme status --offline 2>&1", 3)
+    assert_path_exists man1/"hme.1"
   end
 end
 EOF_FORMULA

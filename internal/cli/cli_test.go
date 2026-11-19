@@ -429,3 +429,37 @@ func TestVersionAndHelp(t *testing.T) {
 		t.Error("an unknown command succeeded")
 	}
 }
+
+func TestManPages(t *testing.T) {
+	e := newEnv(t)
+	dir := filepath.Join(t.TempDir(), "man", "man1")
+	e.ok("man", dir)
+
+	root, err := os.ReadFile(filepath.Join(dir, "hme.1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(root, []byte(".TH \"HME\" \"1\"")) || !bytes.Contains(root, []byte("hme test")) {
+		t.Errorf("hme.1 has no proper header:\n%.300s", root)
+	}
+	for _, verb := range []string{"generate", "list", "delete", "login", "status"} {
+		page, err := os.ReadFile(filepath.Join(dir, "hme-"+verb+".1"))
+		if err != nil {
+			t.Errorf("no page for %s: %v", verb, err)
+			continue
+		}
+		if !bytes.Contains(page, []byte("SYNOPSIS")) {
+			t.Errorf("hme-%s.1 has no synopsis", verb)
+		}
+	}
+	// The generator itself is not documented, and is not in --help.
+	if _, err := os.Stat(filepath.Join(dir, "hme-man.1")); !errors.Is(err, os.ErrNotExist) {
+		t.Error("the hidden man command got its own page")
+	}
+	if strings.Contains(e.ok("--help").out, "\n  man ") {
+		t.Error("the man command is listed in --help")
+	}
+	if r := e.run("", "man"); r.code != cli.ExitUsage {
+		t.Errorf("man without a directory: exit %d", r.code)
+	}
+}

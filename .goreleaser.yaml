@@ -2,6 +2,12 @@ version: 2
 
 project_name: hme
 
+before:
+  hooks:
+    # Manual pages, generated from the command tree and shipped in every
+    # archive. man/ is ignored by git.
+    - go run ./cmd/hme man man
+
 builds:
   - id: hme
     main: ./cmd/hme
@@ -25,6 +31,7 @@ archives:
     files:
       - LICENSE
       - README.md
+      - man/*.1
 
 checksum:
   name_template: checksums.txt

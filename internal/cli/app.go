@@ -121,6 +121,7 @@ creates an address and puts it on the clipboard.`,
 		Args:  exactArgs(0),
 		Run:   func(*cobra.Command, []string) { fmt.Fprintf(a.Out, "hme %s\n", a.Version) },
 	})
+	root.AddCommand(a.manCmd())
 	return root
 }
 

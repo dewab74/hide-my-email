@@ -59,6 +59,8 @@ site/
 # Build output
 /hme
 dist/
+# Generated manual pages (make man)
+/man/
 # A session file is a credential. It lives in the user config directory, never
 # here, but make sure a stray copy can never be committed.
 session.json

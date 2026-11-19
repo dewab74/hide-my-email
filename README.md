@@ -45,6 +45,14 @@ may become unnecessary.
 
 ### Homebrew (macOS and Linux)
 
+One line taps this repository and installs `hme`:
+
+```bash
+brew tap dewab74/hide-my-email https://github.com/dewab74/hide-my-email && { brew trust --formula dewab74/hide-my-email/hme 2>/dev/null || true; } && brew install hme
+```
+
+Or step by step:
+
 ```bash
 brew tap dewab74/hide-my-email https://github.com/dewab74/hide-my-email
 ```
@@ -58,12 +66,12 @@ brew install hme
 ```
 
 The `brew trust` step is for Homebrew 7 and newer, which refuses formulae
-from third-party taps until you say you trust them; older versions do not
-have the command, so skip it there.
+from third-party taps until you say you trust them. Older versions do not
+have the command; the one-liner skips it there, and so can you.
 
 This installs the prebuilt binary for your platform, verified against its
-published SHA-256, along with shell completions for bash, zsh and fish.
-Later:
+published SHA-256, along with the manual pages (`man hme`) and shell
+completions for bash, zsh and fish. Later:
 
 ```bash
 brew upgrade hme
@@ -92,6 +100,8 @@ gh attestation verify hme_0.1.0_darwin_arm64.tar.gz --repo dewab74/hide-my-email
 ```
 
 Unpack it and put `hme` (`hme.exe` on Windows) somewhere on your `PATH`.
+The archive's `man/` directory holds the manual pages; copy them into a
+`man1` directory on your `MANPATH`, for example `~/.local/share/man/man1`.
 
 ### From source
 
@@ -138,6 +148,13 @@ Access* on newer systems; it is off when Advanced Data Protection is on).
 | `hme logout` | Delete the stored session and its key from this machine. |
 | `hme status [--offline]` | Who is signed in, and whether the session still works. Alias: `whoami`. |
 | `hme completion bash\|zsh\|fish\|powershell` | Shell completion script. |
+
+Each command also has a manual page: `man hme`, `man hme-generate`, and so
+on. Homebrew installs them; otherwise `hme man DIR` writes them into `DIR`:
+
+```bash
+hme man ~/.local/share/man/man1
+```
 
 Global flags: `--json` (machine-readable output on stdout), `--debug` (trace
 requests on stderr), `--timeout 30s`. Every command has `--help`.

@@ -212,6 +212,9 @@ func (f *Fake) account() map[string]any {
 	}
 }
 
+// passKey derives the password key the way Apple's server does, so the
+// fake can check proofs: SHA-256 of the fixture password, then PBKDF2.
+// Test code; the hashing scheme is Apple's, not a choice.
 func passKey(protocol string, salt []byte, iterations int) []byte {
 	sum := sha256.Sum256([]byte(Password))
 	in := string(sum[:])

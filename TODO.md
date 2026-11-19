@@ -175,6 +175,14 @@ Accepted for now, with the reason:
       only admins can create them. Pull requests are deliberately not
       required: the release workflow pushes the formula to `main` itself
 
+## CodeQL
+
+- Two alerts dismissed as false positives (2026-11-19):
+  `go/weak-sensitive-data-hashing` on the SHA-256 in `deriveKey` and in the
+  test fake. It is the pre-hash Apple's protocol requires before PBKDF2,
+  not password storage. If the rule fires again on those lines, dismiss it
+  the same way
+
 ## Known limitations
 
 - The iCloud web API is private and can change without notice.

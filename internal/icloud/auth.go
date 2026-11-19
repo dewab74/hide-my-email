@@ -190,6 +190,10 @@ func deriveKey(password, salt []byte, iterations int, protocol string) ([]byte, 
 	if iterations < minIterations || iterations > maxIterations || len(salt) < minSaltBytes {
 		return nil, errors.New("sign-in: Apple sent implausible key-derivation parameters")
 	}
+	// SHA-256 here is not the password hash: it is the input Apple's
+	// protocol prescribes for PBKDF2 below, which is the slow, salted step.
+	// Changing it would make every sign-in fail. (CodeQL flags this line as
+	// weak password hashing; that alert is dismissed as a false positive.)
 	sum := sha256.Sum256(password)
 	defer clear(sum[:])
 	in := sum[:]
